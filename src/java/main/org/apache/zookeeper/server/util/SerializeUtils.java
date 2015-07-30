@@ -39,6 +39,10 @@ import org.apache.zookeeper.txn.SetACLTxn;
 import org.apache.zookeeper.txn.SetDataTxn;
 import org.apache.zookeeper.txn.TxnHeader;
 
+/**
+ * 序列化和反序列化的工具：
+ * 
+ * */
 public class SerializeUtils {
     private static final Logger LOG = Logger.getLogger(SerializeUtils.class);
     

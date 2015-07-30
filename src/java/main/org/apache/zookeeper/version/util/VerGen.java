@@ -24,6 +24,11 @@ import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 
+ * 启动时输出的日志 忽略
+ * 
+ * **/
 public class VerGen {
     private static final String PACKAGE_NAME = "org.apache.zookeeper.version";
     private static final String TYPE_NAME = "Info";

@@ -20,6 +20,11 @@ package org.apache.zookeeper.server.util;
 
 import org.apache.log4j.Logger;
 
+
+/**
+ * 抽象一个操作的执行 给定超时时间 如果超时 打印出来
+ * 
+ * */
 public class Profiler {
     private static final Logger LOG = Logger.getLogger(Profiler.class);
 

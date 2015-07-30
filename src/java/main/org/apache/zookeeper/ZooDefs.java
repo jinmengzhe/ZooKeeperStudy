@@ -24,7 +24,18 @@ import java.util.Collections;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Id;
 
+
+/**
+ * zookeeper的一些基本定义：
+ * 1 操作码
+ * 2 权限
+ * 3 Ids--验证方式
+ * 
+ * 详情见下面具体的
+ * 
+ * */
 public class ZooDefs {
+	// 为每一种操作定义一个操作码
     public interface OpCode {
         public final int notification = 0;
 
@@ -61,6 +72,7 @@ public class ZooDefs {
         public final int error = -1;
     }
 
+    // 节点权限的分类
     public interface Perms {
         int READ = 1 << 0;
 
@@ -75,6 +87,7 @@ public class ZooDefs {
         int ALL = READ | WRITE | CREATE | DELETE | ADMIN;
     }
 
+    // 验证方式的分类
     public interface Ids {
         /**
          * This Id represents anyone.
