@@ -21,6 +21,14 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 操作的结果：
+ * @rc  resultcode
+ * @op  操作类型
+ * @response  操作响应
+ * 
+ * */
 public class op_result_t implements Record {
   private int rc;
   private int op;

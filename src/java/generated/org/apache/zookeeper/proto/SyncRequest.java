@@ -21,6 +21,14 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * TODO
+ * 
+ * 同步的请求：
+ * @path  要同步的path
+ * 
+ * */
 public class SyncRequest implements Record {
   private String path;
   public SyncRequest() {

@@ -21,6 +21,12 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 设置节点数据的响应：
+ * @stat 返回设置之后的节点stat？？？
+ * 
+ * */
 public class SetDataResponse implements Record {
   private org.apache.zookeeper.data.Stat stat;
   public SetDataResponse() {

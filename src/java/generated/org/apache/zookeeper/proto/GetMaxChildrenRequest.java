@@ -21,6 +21,12 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 获取一个节点下最大子节点数目限制的请求：
+ * @path： 要回去的节点path
+ * 
+ * */
 public class GetMaxChildrenRequest implements Record {
   private String path;
   public GetMaxChildrenRequest() {

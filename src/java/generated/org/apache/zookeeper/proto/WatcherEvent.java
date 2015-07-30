@@ -21,6 +21,14 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * Watch事件：
+ * @type  什么类型的事件
+ * @stat  状态？？？？
+ * @path  哪个路径发生了这个事件
+ * 
+ * */ 
 public class WatcherEvent implements Record {
   private int type;
   private int state;

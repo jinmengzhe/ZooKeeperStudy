@@ -21,6 +21,13 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 测试节点是否存在的请求：
+ * @path  测试节点
+ * @watch 是否添加watch
+ * 
+ * */
 public class ExistsRequest implements Record {
   private String path;
   private boolean watch;

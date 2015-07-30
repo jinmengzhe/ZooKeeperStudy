@@ -21,6 +21,18 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * TODO
+ * 设置watch的请求？？:
+ * 
+ * @relativeZxid  相对事务id 干什么的？？？？
+ * @dataWatches   要设置data watch的路径集合
+ * @existWatches  要设置exit watch的路径集合
+ * @childWatches  要设置child watch的路径集合
+ * 
+ * 
+ * */
 public class SetWatches implements Record {
   private long relativeZxid;
   private java.util.List<String> dataWatches;

@@ -21,6 +21,13 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 获取子节点的响应：
+ * @children 子节点结果
+ * @stat     当前节点的stat
+ * 
+ * */
 public class GetChildren2Response implements Record {
   private java.util.List<String> children;
   private org.apache.zookeeper.data.Stat stat;

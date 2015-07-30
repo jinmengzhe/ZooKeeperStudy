@@ -21,6 +21,13 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 获取节点数据的请求：
+ * @path  要回去数据的节点path
+ * @watch 是否在本次操作中添加watch
+ * 
+ * */
 public class GetDataRequest implements Record {
   private String path;
   private boolean watch;

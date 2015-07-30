@@ -21,6 +21,12 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 获取节点acl的请求：
+ * @path 获取的节点path
+ * 
+ * */
 public class GetACLRequest implements Record {
   private String path;
   public GetACLRequest() {

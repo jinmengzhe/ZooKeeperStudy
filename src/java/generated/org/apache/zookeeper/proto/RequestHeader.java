@@ -21,6 +21,13 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 请求头：
+ * @xid 此次请求的id 唯一标示？
+ * @type 请求类型
+ * 
+ * */
 public class RequestHeader implements Record {
   private int xid;
   private int type;

@@ -21,6 +21,12 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 测试节点是否存在的响应：
+ * @stat 如果存在返回的节点状态  如果不存在为null？
+ * 
+ * */
 public class ExistsResponse implements Record {
   private org.apache.zookeeper.data.Stat stat;
   public ExistsResponse() {

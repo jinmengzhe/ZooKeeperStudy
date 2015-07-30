@@ -21,6 +21,13 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 获取节点acl的响应：
+ * @acl  返回的节点acl
+ * @stat 返回的节点stat 干什么的？？？
+ * 
+ * */
 public class GetACLResponse implements Record {
   private java.util.List<org.apache.zookeeper.data.ACL> acl;
   private org.apache.zookeeper.data.Stat stat;

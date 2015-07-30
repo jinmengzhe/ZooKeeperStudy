@@ -21,6 +21,12 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 设置权限的响应：
+ * @stat：设置完权限后的stat????
+ * 
+ * */
 public class SetACLResponse implements Record {
   private org.apache.zookeeper.data.Stat stat;
   public SetACLResponse() {

@@ -21,6 +21,15 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 创建结点请求:
+ * @path  节点path
+ * @data  节点data
+ * @acl   节点acl
+ * @flags 是否临时节点
+ * 
+ * */
 public class CreateRequest implements Record {
   private String path;
   private byte[] data;

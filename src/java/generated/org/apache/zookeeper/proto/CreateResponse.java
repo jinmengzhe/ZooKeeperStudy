@@ -21,6 +21,12 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 创建节点的响应：
+ * @path 创建的节点path
+ * 
+ * */
 public class CreateResponse implements Record {
   private String path;
   public CreateResponse() {

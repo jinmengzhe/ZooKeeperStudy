@@ -21,6 +21,14 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 设置节点数据的请求：
+ * @path 节点path
+ * @data 要设置的data
+ * @version version set
+ * 
+ * */
 public class SetDataRequest implements Record {
   private String path;
   private byte[] data;

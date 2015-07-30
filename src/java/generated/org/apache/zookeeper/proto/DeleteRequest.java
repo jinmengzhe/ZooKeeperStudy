@@ -21,6 +21,15 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 删除节点的请求：
+ * @path 要删除的节点
+ * @version 制定版本号删除
+ * 
+ * TODO 为什么没有对应的响应体呢？
+ * 
+ * */
 public class DeleteRequest implements Record {
   private String path;
   private int version;

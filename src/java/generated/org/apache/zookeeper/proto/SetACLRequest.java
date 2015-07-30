@@ -21,6 +21,14 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 设置权限的请求：
+ * @path 要设置权限的path
+ * @acl  要设置的权限
+ * @version 针对某个版本设置权限
+ * 
+ * */
 public class SetACLRequest implements Record {
   private String path;
   private java.util.List<org.apache.zookeeper.data.ACL> acl;

@@ -21,6 +21,15 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 
+ * TODO
+ * 同步的响应：
+ * @path 同步的path
+ * ？？？？同步到的数据呢？？？？
+ * 
+ * */
 public class SyncResponse implements Record {
   private String path;
   public SyncResponse() {

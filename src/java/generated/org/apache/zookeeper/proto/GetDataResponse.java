@@ -21,6 +21,13 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 获取节点数据的响应：
+ * @data  获取到的节点数据
+ * @stat  当前节点的stat
+ * 
+ * */
 public class GetDataResponse implements Record {
   private byte[] data;
   private org.apache.zookeeper.data.Stat stat;

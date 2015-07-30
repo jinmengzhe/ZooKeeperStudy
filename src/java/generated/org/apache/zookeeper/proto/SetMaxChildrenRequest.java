@@ -21,6 +21,13 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 设置最大chilren个数的请求：
+ * @path  要设置的节点path
+ * @max   要设置的最大值
+ * 
+ * */
 public class SetMaxChildrenRequest implements Record {
   private String path;
   private int max;

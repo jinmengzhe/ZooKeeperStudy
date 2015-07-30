@@ -21,6 +21,16 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 获取节点children的请求：
+ * @path  要获取的节点
+ * @watch 是否在本次请求中指定watch
+ * 
+ * 注意GetChildren2Request和GetChildrenRequest  几乎一样 前者多返回一个节点的Stat
+ * 后者不再重复解释
+ * 
+ * */
 public class GetChildren2Request implements Record {
   private String path;
   private boolean watch;

@@ -21,6 +21,15 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+
+/**
+ * 响应的header:
+ * @xid   此次响应id？
+ * @zxid  事务id
+ * @err   错误值
+ * 
+ * */
 public class ReplyHeader implements Record {
   private int xid;
   private long zxid;

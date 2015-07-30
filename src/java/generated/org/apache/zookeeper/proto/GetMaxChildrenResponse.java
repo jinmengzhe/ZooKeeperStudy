@@ -21,6 +21,12 @@ package org.apache.zookeeper.proto;
 
 import java.util.*;
 import org.apache.jute.*;
+
+/**
+ * 获取节点最大子节点数限制的响应：
+ * @max 返回最大的子节点数目
+ * 
+ * */
 public class GetMaxChildrenResponse implements Record {
   private int max;
   public GetMaxChildrenResponse() {
