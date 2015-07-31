@@ -30,6 +30,12 @@ import org.apache.log4j.Logger;
 
 import org.apache.zookeeper.server.ZooTrace;
 
+
+/**
+ * 测试类或者直接执行的一个管理命令客户端 该类不与外界交互 直接运行
+ * 功能：向zk server的实例发送命令 收到答复并输出
+ * 
+ * */
 public class ServerAdminClient {
     private static final Logger LOG = Logger.getLogger(ServerAdminClient.class);
 

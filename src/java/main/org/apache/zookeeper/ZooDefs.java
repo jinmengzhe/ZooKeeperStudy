@@ -32,7 +32,6 @@ import org.apache.zookeeper.data.Id;
  * 3 Ids--验证方式
  * 
  * 详情见下面具体的
- * 
  * */
 public class ZooDefs {
 	// 为每一种操作定义一个操作码

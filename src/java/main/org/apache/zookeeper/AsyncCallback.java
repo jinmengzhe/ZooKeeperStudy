@@ -21,36 +21,47 @@ import java.util.List;
 
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
-
+/**
+ * 异步回调的接口
+ * 参数及含义后续补充
+ * 
+ * */
 public interface AsyncCallback {
+	// stat变化异步回调
     interface StatCallback extends AsyncCallback {
         public void processResult(int rc, String path, Object ctx, Stat stat);
     }
 
+    // data变化异步回调
     interface DataCallback extends AsyncCallback {
         public void processResult(int rc, String path, Object ctx, byte data[],
                 Stat stat);
     }
 
+    // acl变化异步回调
     interface ACLCallback extends AsyncCallback {
         public void processResult(int rc, String path, Object ctx,
                 List<ACL> acl, Stat stat);
     }
 
+    // children变化异步回调
     interface ChildrenCallback extends AsyncCallback {
         public void processResult(int rc, String path, Object ctx,
                 List<String> children);
     }
 
+    // children2变化异步回调--多个stat
     interface Children2Callback extends AsyncCallback {
         public void processResult(int rc, String path, Object ctx,
                 List<String> children, Stat stat);
     }
 
+    // ?????
     interface StringCallback extends AsyncCallback {
         public void processResult(int rc, String path, Object ctx, String name);
     }
 
+    // ????
     interface VoidCallback extends AsyncCallback {
         public void processResult(int rc, String path, Object ctx);
     }

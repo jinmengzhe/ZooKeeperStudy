@@ -28,6 +28,8 @@ import org.apache.log4j.Logger;
 /**
  * Provide insight into the runtime environment.
  *
+ * 环境变量：easy 不解释了 
+ * 
  */
 public class Environment {
     public static class Entry {

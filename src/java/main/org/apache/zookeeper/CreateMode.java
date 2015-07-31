@@ -22,6 +22,16 @@ import org.apache.zookeeper.KeeperException;
 
 /***
  *  CreateMode value determines how the znode is created on ZooKeeper.
+ *  创建模式：定义了4中创建模式
+ *  0 永久节点
+ *  1 永久顺序节点
+ *  2 临时节点
+ *  3 临时顺序节点
+ *  
+ *  @flag   0 1 2 3 唯一标示CreateMode
+ *  @ephemeral 是否临时节点
+ *  @sequential 是否顺序节点
+ *  
  */
 public enum CreateMode {
     

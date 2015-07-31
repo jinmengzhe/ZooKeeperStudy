@@ -20,6 +20,13 @@ package org.apache.zookeeper;
 
 /**
  * a class that represents the stats associated with quotas
+ * 
+ * 对节点进行限额的配置：
+ * 以字符串“count=-1,bytes=-1”这种格式来描述
+ * @count  最多几个子节点？
+ * @bytes  最大的数据大小？
+ * -1表示无限制
+ * 
  */
 public class StatsTrack {
     private int count;

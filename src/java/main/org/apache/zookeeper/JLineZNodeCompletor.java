@@ -22,6 +22,11 @@ import java.util.List;
 
 import jline.Completor;
 
+/**
+ * Jline是一个开源的Java控制台输入类库 用于zk命令行的自动补全---熟悉zk的人都懂的
+ * 对Jline本身的东西就不管了 本学习笔记只关注zk 有兴趣自己去研究
+ * 
+ * */
 class JLineZNodeCompletor implements Completor {
     private ZooKeeper zk;
 
@@ -47,6 +52,10 @@ class JLineZNodeCompletor implements Completor {
         return completeCommand(buffer, token, candidates);
     }
 
+    /**
+     * 补全命令：
+     * 
+     * */
     private int completeCommand(String buffer, String token,
             List<String> candidates)
     {
@@ -58,6 +67,10 @@ class JLineZNodeCompletor implements Completor {
         return buffer.lastIndexOf(" ")+1;
     }
 
+    /**
+     * 补全zk路径：
+     * 
+     * */
     private int completeZNode( String buffer, String token,
             List<String> candidates)
     {

@@ -24,8 +24,8 @@ import org.apache.jute.*;
 
 /**
  * Watch事件：
- * @type  什么类型的事件
- * @stat  状态？？？？
+ * @type  什么类型的事件  参见Watcher.Event.EventType
+ * @stat  事件发生时zk的状态 参见Watcher.Event.KeeperState
  * @path  哪个路径发生了这个事件
  * 
  * */ 

@@ -18,6 +18,10 @@
 
 package org.apache.zookeeper;
 
+/**
+ * 关于version的一些输出信息 忽略
+ * 
+ * */
 public class Version implements org.apache.zookeeper.version.Info {
 
     public static int getRevision() {

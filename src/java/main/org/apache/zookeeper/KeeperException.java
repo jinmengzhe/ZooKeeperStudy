@@ -22,6 +22,17 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 
+
+/**
+ * 1 所有的KeeperException都应该通过这个类来构建：以此保证错误码和错误message的一致规范
+ * 2 KeeperException由错误码Code和发生错误的路径path来定义：
+ * 	   	Code为KeeperException中定义的枚举类型
+ * 		每个Code码对应一个固定的message
+ * 		path可以缺省
+ * 
+ * 了解这样设计的目的即可。
+ * 
+ * */
 @SuppressWarnings("serial")
 public abstract class KeeperException extends Exception {
 

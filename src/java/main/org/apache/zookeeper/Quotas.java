@@ -22,6 +22,18 @@ package org.apache.zookeeper;
  * this class manages quotas
  * and has many other utils
  * for quota
+ * 
+ * quota：配额 定额的意思
+ * 
+ * 配额节点：
+ * 1 /zookeeper/quota这个是zk自己预设置的一个节点 该节点用户管理一些对zk下面path的配额管理
+ *   结构是这样的：
+ *    /zookeeper/quota:
+ *                      [path1,path2......]-----哪些节点要做配额管理
+ *    /zookeeper/quota/path1: 
+ *    					      [zookeeper_limits, zookeeper_stats]----限制子节点个数 +  限制子节点个数的监控状态节点？？？
+ *    						
+ *                   
  */
 public class Quotas {
 

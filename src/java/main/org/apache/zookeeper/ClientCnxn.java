@@ -76,7 +76,12 @@ import org.apache.zookeeper.server.ZooTrace;
  * This class manages the socket i/o for the client. ClientCnxn maintains a list
  * of available servers to connect to and "transparently" switches servers it is
  * connected to as needed.
- *
+ * 
+ * 1 客户端上下文：管理可连接的servers scoket i/o
+ * 2 实际的、或者说更为底层的客户端操作的请求、都在这个类里完成。更为上层的Zookeeper类(也就是用户直接使用的入口)都是调用这个类
+ * 3 这个类很重要 所有的实现都在ClientCnxn和Zookeeper这两个类里面---代码比较多、详细注释在实现中。
+ * 
+ * 
  */
 public class ClientCnxn {
     private static final Logger LOG = Logger.getLogger(ClientCnxn.class);
@@ -84,9 +89,18 @@ public class ClientCnxn {
     /** This controls whether automatic watch resetting is enabled.
      * Clients automatically reset watches during session reconnect, this
      * option allows the client to turn off this behavior by setting
-     * the environment variable "zookeeper.disableAutoWatchReset" to "true" */
+     * the environment variable "zookeeper.disableAutoWatchReset" to "true"
+     * 
+     *  是否关闭自动watch reset---当session重连时、客户端会自动重置这些watche(这些watch在客户端缓存)
+     *  默认是false、即支持自动恢复watch。可以通过配置设置为不支持。
+     *  
+     *  */
     private static boolean disableAutoWatchReset;
 
+    /**
+     * packet包的大小、限制为4096 * 1024(2^22)--这个值已经足够大
+     * 
+     * */
     public static final int packetLen;
     static {
         // this var should not be public, but otw there is no easy way
@@ -100,9 +114,16 @@ public class ClientCnxn {
         packetLen = Integer.getInteger("jute.maxbuffer", 4096 * 1024);
     }
 
+    /**
+     * 可以连接的zk server socket 列表
+     * 容易理解
+     * */
     private final ArrayList<InetSocketAddress> serverAddrs =
         new ArrayList<InetSocketAddress>();
 
+    /**
+     * 安全验证方式
+     * */
     static class AuthData {
         AuthData(String scheme, byte data[]) {
             this.scheme = scheme;
@@ -114,45 +135,107 @@ public class ClientCnxn {
         byte data[];
     }
 
+    /**
+     * 支持多种验证方式
+     * 
+     * */
     private final ArrayList<AuthData> authInfo = new ArrayList<AuthData>();
 
     /**
      * These are the packets that have been sent and are waiting for a response.
+     * 已发送等待响应的packet队列
+     * 
      */
     private final LinkedList<Packet> pendingQueue = new LinkedList<Packet>();
 
     /**
      * These are the packets that need to be sent.
+     * 
+     * 等待发送的packet队列
      */
     private final LinkedList<Packet> outgoingQueue = new LinkedList<Packet>();
 
+    /**
+     * 维护下一个应该连接的zk实例下标--后面的代码里我们来分析选择server的策略
+     * 
+     * */
     private int nextAddrToTry = 0;
 
+    /**
+     * connectTimeout起始时设置为sessionTimeout/server个数
+     * 后面如果连接成功设置为实际的negotiatedSessionTimeout/server个数
+     * 
+     * */
     private int connectTimeout;
 
     /** The timeout in ms the client negotiated with the server. This is the 
      *  "real" timeout, not the timeout request by the client (which may
      *  have been increased/decreased by the server which applies bounds
      *  to this value.
+     *  
+     *  客户端与server之间协商的超时时间、这是实际的超时时间
+     *  它是由连接成功后的ConnectResponse返回的timeOut--由server端记载的
+     *  注意它是volatile的--后续解释
      */
     private volatile int negotiatedSessionTimeout;
 
+    /**
+     * 策略同connectTimeout、初始时设置为sessionTimeout的2/3
+     * 后面设置为实际的negotiatedSessionTimeout的2/3
+     * ---
+     * 
+     * */
     private int readTimeout;
 
+    /**
+     * 所有连接的超时时间 这个值是用户从Zookeeper类入口直接设置的
+     * 
+     * */
     private final int sessionTimeout;
 
+    /**
+     * 持有该上下文的Zookeeper实例、它们之间互相引用以进行一些内部操作
+     * 参考Zookeeper的构造方法
+     * 
+     * */
     private final ZooKeeper zooKeeper;
 
+    /**
+     * ClientWatchManager接口、用于挑选需要处理的watcher集合
+     * 该接口的实现在Zookeeper类中、在Zookeeper的构造方法中传入ClientCnxn
+     * 
+     * */
     private final ClientWatchManager watcher;
 
+    /**
+     * 此次连接的sessionId
+     * */
     private long sessionId;
 
+    /**
+     * 此次连接的验证信息
+     * 
+     * */
     private byte sessionPasswd[] = new byte[16];
 
+    /**
+     * 支持以rootPath的方式去连
+     * 
+     * */
     final String chrootPath;
 
+    /**
+     * 发送请求和接受响应、维持心跳的线程
+     * 核心代码
+     * 
+     * */
     final SendThread sendThread;
 
+    /**
+     * 事件处理的线程--处理到server的通知、监听事件等
+     * 核心代码
+     * 
+     * */
     final EventThread eventThread;
 
     /**
@@ -160,6 +243,9 @@ public class ClientCnxn {
      * don't attempt to re-connect to the server if in the middle of closing the
      * connection (client sends session disconnect to server as part of close
      * operation)
+     * 
+     * 用于状态维护、当正在进行close操作时置为true、锁存re-connect操作
+     * 注意volatile
      */
     volatile boolean closing = false;
 
@@ -200,6 +286,7 @@ public class ClientCnxn {
      * Returns the address to which the socket is connected.
      * @return ip address of the remote side of the connection or null if
      *         not connected
+     *         返回当前连接上的server的socket地址
      */
     SocketAddress getRemoteSocketAddress() {
         // a lot could go wrong here, so rather than put in a bunch of code
@@ -217,6 +304,7 @@ public class ClientCnxn {
      * Returns the local address to which the socket is bound.
      * @return ip address of the remote side of the connection or null if
      *         not connected
+     *         当前连接的本地scoket地址
      */
     SocketAddress getLocalSocketAddress() {
         // a lot could go wrong here, so rather than put in a bunch of code
@@ -652,6 +740,12 @@ public class ClientCnxn {
         finishPacket(p);
     }
 
+    /**
+     * zxid为一64位数字，高32位为leader信息又称为epoch，每次leader转换时递增；低32位为消息编号
+     * Leader转换时应该从0重新开始编号
+     * 每条消息有这样一个id  详情以后再说  TODO
+     * 
+     * */
     volatile long lastZxid;
 
     private static class EndOfStreamException extends IOException {
@@ -1328,6 +1422,11 @@ public class ClientCnxn {
         }
     }
 
+    /**
+     * 此次请求id的唯一标示 原子自增
+     * 在请求header里 参考RequestHeader
+     * 
+     * */
     private int xid = 1;
 
     synchronized private int getXid() {

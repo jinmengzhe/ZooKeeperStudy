@@ -21,6 +21,11 @@ package org.apache.zookeeper;
 import java.util.Set;
 
 /**
+ * 1 ClientWatchManager为watcher的管理接口，内部类Zookeeper.ZKWatchManager实现了该接口--详情去Zookeeper看
+ * 2 唯一的方法materialize(使具体化)由ZKWatchManager实现、用于确定哪些watcher需要被通知--返回一个需要被通知的set
+ * 
+ * 实现细节看 Zookeeper.ZKWatchManager
+ * 
  */
 public interface ClientWatchManager {
     /**

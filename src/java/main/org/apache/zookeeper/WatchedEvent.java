@@ -26,6 +26,12 @@ import org.apache.zookeeper.Watcher.Event.KeeperState;
  *  is able to respond to.  The WatchedEvent includes exactly what happened,
  *  the current state of the ZooKeeper, and the path of the znode that
  *  was involved in the event.
+ *  
+ *  WatchedEvent: zk上变化的事件描述--与WatcherEvent是等价的
+ *  注意：
+ *  1 WatchedEvent与WatcherEvent是等价的、WatcherEvent在通信协议里定义是可以序列化通过网络发送到对象
+ *    而WatchedEvent是用枚举定义的 用于在逻辑代码里更好的识别  ---它们之间存在一个转换
+ *  
  */
 public class WatchedEvent {
     final private KeeperState keeperState;
