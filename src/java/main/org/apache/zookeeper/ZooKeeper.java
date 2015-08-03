@@ -110,7 +110,10 @@ public class ZooKeeper {
         Environment.logEnv("Client environment:", LOG);
     }
 
-
+    /**
+     * 管理所有的watch
+     *  
+     * */
     private final ZKWatchManager watchManager = new ZKWatchManager();
 
     List<String> getDataWatches() {
@@ -138,8 +141,14 @@ public class ZooKeeper {
      * We are implementing this as a nested class of ZooKeeper so that
      * the public methods will not be exposed as part of the ZooKeeper client
      * API.
+     * 
+     * 这个类作为Zookeeper的一个包含的对象 管理着所有的watch
+     * 
      */
     private static class ZKWatchManager implements ClientWatchManager {
+    	/**
+    	 * 维护每个path上的所有watch
+    	 * */
         private final Map<String, Set<Watcher>> dataWatches =
             new HashMap<String, Set<Watcher>>();
         private final Map<String, Set<Watcher>> existWatches =
@@ -147,6 +156,9 @@ public class ZooKeeper {
         private final Map<String, Set<Watcher>> childWatches =
             new HashMap<String, Set<Watcher>>();
 
+        /**
+         * 默认的watcher 即在new Zookeeper类时指定的
+         */
         private volatile Watcher defaultWatcher;
 
         final private void addTo(Set<Watcher> from, Set<Watcher> to) {
@@ -157,6 +169,16 @@ public class ZooKeeper {
 
         /* (non-Javadoc)
          * @see org.apache.zookeeper.ClientWatchManager#materialize(Event.KeeperState, Event.EventType, java.lang.String)
+         *
+         * 在ClientCnxn类的EventThread.queueEvent中被调用   
+         * 用于管理Watcher
+         * @type 被触发的watch类型
+         * @stat 触发该watch的server状态
+         * @clientPath 被触发watch的节点
+         * 
+         * @return 返回该watch被触发后 还有那些watch
+         * 
+         * 
          */
         public Set<Watcher> materialize(Watcher.Event.KeeperState state,
                                         Watcher.Event.EventType type,
@@ -178,6 +200,11 @@ public class ZooKeeper {
                 }
 
                 // clear the watches if auto watch reset is not enabled
+                /**
+                 * 如果状态不是连接上了、且不支持自动重设watch
+                 * 那么表示此时需要去重连 将所有watch清空
+                 * 
+                 * */
                 if (ClientCnxn.getDisableAutoResetWatch() &&
                         state != Watcher.Event.KeeperState.SyncConnected)
                 {
@@ -193,6 +220,10 @@ public class ZooKeeper {
                 }
 
                 return result;
+             /**
+              * 注意一次性触发是怎么导致的
+              * 
+              * */
             case NodeDataChanged:
             case NodeCreated:
                 synchronized (dataWatches) {
@@ -236,6 +267,16 @@ public class ZooKeeper {
 
     /**
      * Register a watcher for a particular path.
+     * 事件注册的抽象类：
+     * 		ExistsWatchRegistration
+     * 		DataWatchRegistration
+     * 		ChildWatchRegistration
+     * 扩展了该抽象类
+     * 
+     * 
+     * @path  要注册watch的路径
+     * @watcher watch的具体内容--参见Watcher定义、里面主要包含了事件类型以及如何处理该事件
+     * 
      */
     abstract class WatchRegistration {
         private Watcher watcher;
@@ -246,12 +287,16 @@ public class ZooKeeper {
             this.clientPath = clientPath;
         }
 
+        // 参见具体类  从watchManager重获取所有watch
         abstract protected Map<String, Set<Watcher>> getWatches(int rc);
 
         /**
          * Register the watcher with the set of watches on path.
          * @param rc the result code of the operation that attempted to
          * add the watch on the path.
+         * 
+         * 注册该watch(watcher + clientPath)
+         * 
          */
         public void register(int rc) {
             if (shouldAddWatch(rc)) {
@@ -271,6 +316,10 @@ public class ZooKeeper {
          * @param rc the result code of the operation that attempted to add the
          * watch on the node
          * @return true if the watch should be added, otw false
+         * 
+         * zk的操作会顺带着做watch rc是该操作返回完成后返回的结果
+         * rc=0 表示该操作成功了 只有操作成功了 客户端才做watch---否则server端不知道
+         * 
          */
         protected boolean shouldAddWatch(int rc) {
             return rc == 0;
@@ -279,6 +328,9 @@ public class ZooKeeper {
 
     /** Handle the special case of exists watches - they add a watcher
      * even in the case where NONODE result code is returned.
+     * 
+     * ExistWatch特殊处理 
+     * 
      */
     class ExistsWatchRegistration extends WatchRegistration {
         public ExistsWatchRegistration(Watcher watcher, String clientPath) {

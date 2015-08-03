@@ -320,27 +320,65 @@ public class ClientCnxn {
 
     /**
      * This class allows us to pass the headers and the relevant records around.
+     * 
+     * 传输的数据包：
+     * 
+     * 
      */
     static class Packet {
+    	/**  
+    	 * 请求header
+    	 * */
         RequestHeader header;
 
+        /**
+         * 数据包实际读写的缓冲区
+         * 
+         * */
         ByteBuffer bb;
 
-        /** Client's view of the path (may differ due to chroot) **/
+        /** Client's view of the path (may differ due to chroot)
+         * 	客户端看到的path 注意chroot
+         *  
+         *  **/
         String clientPath;
-        /** Servers's view of the path (may differ due to chroot) **/
+        /** Servers's view of the path (may differ due to chroot) 
+         * 	server端看到的path
+         * 
+         * **/
         String serverPath;
 
+        /**
+         * 响应的header
+         * */
         ReplyHeader replyHeader;
 
+        /**
+         * 请求体正文
+         * 
+         * */
         Record request;
 
+        /**
+         * 响应体正文
+         * 
+         * */
         Record response;
 
+        /**
+         * 数据包是否处理完毕--TODO
+         * */
         boolean finished;
 
+        /**
+         * 异步回调 用于在客户端处理通知事件
+         * 
+         * */
         AsyncCallback cb;
 
+        /**
+         * AsyncCallback里回调时的上下文 貌似没什么用????? TODO
+         * */
         Object ctx;
 
         WatchRegistration watchRegistration;

@@ -113,11 +113,11 @@ public interface Watcher {
          * Enumeration of types of events that may occur on the ZooKeeper
          * 
          * 事件的种类：
-         * 1 None
-         * 2 节点创建
-         * 3 节点删除
-         * 4 数据改变
-         * 5 children改变
+         * -1 None
+         * 1 节点创建
+         * 2 节点删除
+         * 3 数据改变
+         * 4 children改变
          * 
          */
         public enum EventType {
