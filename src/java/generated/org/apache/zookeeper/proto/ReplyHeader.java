@@ -25,9 +25,9 @@ import org.apache.jute.*;
 
 /**
  * 响应的header:
- * @xid   此次响应id？
- * @zxid  事务id
- * @err   错误值
+ * @xid   标示是哪种类型请求的响应 例如-2表示ping的响应
+ * @zxid  服务端返回的最后一个事务id
+ * @err   错误码
  * 
  * */
 public class ReplyHeader implements Record {

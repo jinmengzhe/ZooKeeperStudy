@@ -332,7 +332,7 @@ public class ClientCnxn {
         RequestHeader header;
 
         /**
-         * 数据包实际读写的缓冲区
+         * 数据包实际读写的缓冲区 会将请求包序列化到ByteBuffer中
          * 
          * */
         ByteBuffer bb;
@@ -366,23 +366,63 @@ public class ClientCnxn {
         Record response;
 
         /**
-         * 数据包是否处理完毕--TODO
+         * 数据包是否处理完毕--
+         * 数据包packet的处理包括几个阶段：
+         * 1 提交请求包数据给服务端--参见submitRequest
+         * 2 将packet中的watcher注册到本地维护(通过watcherManager) + 将packet放入EventThread队列、等待api回调处理。--参见finishPacket()
+         * 
+         * 注意1和2之间的关系、在submitRequest中定义了提交数据包的过程、然后packet.wait()来等待finishPacket()的notifyAll
+         * 
          * */
         boolean finished;
 
         /**
-         * 异步回调 用于在客户端处理通知事件
+         * 异步回调 用于处理客户端api中定义的 当api操作完后 对服务端的响应做回调处理
          * 
          * */
         AsyncCallback cb;
 
         /**
-         * AsyncCallback里回调时的上下文 貌似没什么用????? TODO
+         * 擦 终于搞明白这个参数、ctx是回调的上下文、由用户定义。
+         * 在Zookeeper类的api里传入、用户在回调处理结果的时候可能需要传入一些自己的东西作为上下文。
+         * 
          * */
         Object ctx;
 
+        /**
+         * watch注册对象 在Zookeeper里定义的
+         * 用于指定该packet定义的操作要添加的注册对象
+         * 
+         * */
         WatchRegistration watchRegistration;
 
+        /**
+         * 1 packet是一个完整的数据包：请求 + 响应 + watch注册
+         * 	 @header   请求头
+         * 	 @record   请求体
+         * 	 @bb       len + header + record序列化到bb中
+         *   以上定义了发给服务端的完整请求
+         * 
+         *   @relayHeader  响应头
+         *   @response     响应体
+         *   以上定义了服务端响应的完整内容
+         *   
+         *   @watchRegistration
+         *   本次请求附带注册哪些watch--这个是在客户端自己维护的 根据请求的执行结果来决定是否添加watch
+         *   
+         *   这种packet模式是网络编程里最最常见的packet结构、很多开源软件里都是这样定义的。不了解的同学可以仔细看下。
+         *   
+         *   
+         * 2 bb定义请求包、并将完整的请求序列化到字节缓冲区bb中
+         *   请求包格式（即bb的格式）为：
+         * 							len(int型、4字节、表示header + request的长度) + header(请求header) + request(请求体)
+         *   note1：len表示后面两个段的长度、不包括自己。这是非常常见的一种处理 在网络编程中带来很多好处。
+         *   note2：len在实现上为延迟填充、这个也是极为常用的一种技术。
+         * 
+         * 
+         * 以上分析、见packet代码。--理解packet的这种定义方式对于学习很多网络编程相关的东西都是有益的。
+         * 
+         * */
         Packet(RequestHeader header, ReplyHeader replyHeader, Record record,
                 Record response, ByteBuffer bb,
                 WatchRegistration watchRegistration) {
@@ -478,6 +518,7 @@ public class ClientCnxn {
         this.sessionId = sessionId;
         this.sessionPasswd = sessionPasswd;
 
+        // chroot方式处理
         // parse out chroot, if any
         int off = hosts.indexOf('/');
         if (off >= 0) {
@@ -494,6 +535,7 @@ public class ClientCnxn {
             this.chrootPath = null;
         }
 
+        // serverAddrs列表
         String hostsList[] = hosts.split(",");
         for (String host : hostsList) {
             int port = 2181;
@@ -510,10 +552,11 @@ public class ClientCnxn {
                 serverAddrs.add(new InetSocketAddress(addr, port));
             }
         }
+        // 注意一系列的timeout是如何定义的 
         this.sessionTimeout = sessionTimeout;
         connectTimeout = sessionTimeout / hostsList.length;
         readTimeout = sessionTimeout * 2 / 3;
-        Collections.shuffle(serverAddrs);
+        Collections.shuffle(serverAddrs);// 乱序
         sendThread = new SendThread();
         eventThread = new EventThread();
     }
@@ -532,19 +575,34 @@ public class ClientCnxn {
     public static void setDisableAutoResetWatch(boolean b) {
         disableAutoWatchReset = b;
     }
+    
+    /**启动该上下文实际上就是启动这两个主体线程**/
     public void start() {
         sendThread.start();
         eventThread.start();
     }
 
+    /**
+     * 上下文死掉的事件？？？
+     * TODO
+     * */
     Object eventOfDeath = new Object();
 
+    /**
+     * 在sendThread和eventThread定义未catch异常的处理
+     * 
+     * */
     final static UncaughtExceptionHandler uncaughtExceptionHandler = new UncaughtExceptionHandler() {
         public void uncaughtException(Thread t, Throwable e) {
             LOG.error("from " + t.getName(), e);
         }
     };
 
+    /**
+     * @event  客户端监听到的事件：server状态+事件类型+事件路径
+     * @watchers  与此事件相关的客户端维护的watchers---这个由watcherManager挑选出来的
+     * 
+     * */
     private static class WatcherSetEventPair {
         private final Set<Watcher> watchers;
         private final WatchedEvent event;
@@ -566,7 +624,19 @@ public class ClientCnxn {
         return name + suffix;
     }
 
+    /**
+     * 客户端事件处理的后台线程
+     * 
+     * */
     class EventThread extends Thread {
+    	/**
+    	 * 客户端自己维护的等待处理的事件阻塞队列：---当没有事件时、出队一直阻塞
+    	 * Object类型为了支持队列中支持两种类型的事件：TODO
+    	 * 			WatcherSetEventPair:  用于处理watcher
+    	 * 			Packet: 注意这种方式我们平时使用还是蛮少的、在Zookeeper的api里有这个CallBack的参数。
+    	 * 				    用于处理在这个api执行完后、对服务端的响应执行怎样的回调---区别于watcher
+    	 * 
+    	 * */
         private final LinkedBlockingQueue<Object> waitingEvents =
             new LinkedBlockingQueue<Object>();
 
@@ -576,7 +646,16 @@ public class ClientCnxn {
          */
         private volatile KeeperState sessionState = KeeperState.Disconnected;
 
+        /**
+         * 是否接受到了kill通知、当发现队列中有eventOfDeath事件(调用disconnect时将该事件入队)、表示接收到了kill通知。
+         * 它只表示接受到了kill事件 作为一种状态的来通知 线程此时还没有停止运行---为了将队列中的剩余事件执行完再关闭
+         * 
+         * */
        private volatile boolean wasKilled = false;
+       /**
+        * 实际的表示此线程是否还在run的标志、当检测到wasKilled以后、确认事件队列为空后、就停止运行。
+        * 
+        * */
        private volatile boolean isRunning = false;
 
         EventThread() {
@@ -585,6 +664,11 @@ public class ClientCnxn {
             setDaemon(true);
         }
 
+        /**
+         * 观察到事件WatchedEvent、挑选出在此事件上add的watchers。
+         * 即将WatcherSetEventPair加入队列
+         * 
+         * */
         public void queueEvent(WatchedEvent event) {
             if (event.getType() == EventType.None
                     && sessionState == event.getState()) {
@@ -601,6 +685,10 @@ public class ClientCnxn {
             waitingEvents.add(pair);
         }
 
+        /**
+         * 将请求包Packet加入事件处理队列
+         * 
+         * */
        public void queuePacket(Packet packet) {
           if (wasKilled) {
              synchronized (waitingEvents) {
@@ -612,21 +700,33 @@ public class ClientCnxn {
           }
        }
 
+       /**
+        * 特殊的事件 断开连接时加入队列
+        * 
+        * */
         public void queueEventOfDeath() {
             waitingEvents.add(eventOfDeath);
         }
 
+        /**
+         * 死循环、阻塞式出队、处理事件。
+         * waskilled用于标志是否接收到eventOfDeath事件
+         * isRunning用于控制在接手到killed事件后、将剩余的队列中的事件执行完、然后退出死循环、即线程执行完毕退出。
+         * 
+         * */
         @Override
         public void run() {
            try {
               isRunning = true;
               while (true) {
-                 Object event = waitingEvents.take();
+            	 // 阻塞等待
+                 Object event = waitingEvents.take();	
                  if (event == eventOfDeath) {
                     wasKilled = true;
                  } else {
                     processEvent(event);
                  }
+                 // 当接收到eventOfDeath事件后、还需要将剩余事件执行完然后退出
                  if (wasKilled)
                     synchronized (waitingEvents) {
                        if (waitingEvents.isEmpty()) {
@@ -642,9 +742,19 @@ public class ClientCnxn {
             LOG.info("EventThread shut down");
         }
 
+        /**
+         * 事件处理的具体逻辑：
+         * 1 WatcherSetEventPair事件：Watcher是由用户实现的、回调process方法
+         * 2 Packet事件：执行api时指定的该api执行后的回调事件
+         * 
+         * */
        private void processEvent(Object event) {
           try {
               if (event instanceof WatcherSetEventPair) {
+            	  /**
+            	   * watch事件
+            	   * 
+            	   * */
                   // each watcher will process the event
                   WatcherSetEventPair pair = (WatcherSetEventPair) event;
                   for (Watcher watcher : pair.watchers) {
@@ -655,17 +765,33 @@ public class ClientCnxn {
                       }
                   }
               } else {
+            	  /**
+            	   * api回调事件
+            	   * 
+            	   * */
                   Packet p = (Packet) event;
                   int rc = 0;
                   String clientPath = p.clientPath;
                   if (p.replyHeader.getErr() != 0) {
                       rc = p.replyHeader.getErr();
                   }
+                  // 对于没有回调的packet、直接通过。
                   if (p.cb == null) {
                       LOG.warn("Somehow a null cb got to EventThread!");
-                  } else if (p.response instanceof ExistsResponse
+                  } 
+                  /**
+                   * 以下都是指定了api回调的packet
+                   * 根据packet中的响应类型确定执行哪一个回调
+                   * 
+                   * */
+                  else if (p.response instanceof ExistsResponse
                           || p.response instanceof SetDataResponse
                           || p.response instanceof SetACLResponse) {
+                	  /**
+                	   * StatCallback:
+                	   * 参见Zookeeper的api、这三种操作里面可以传入参数StatCallback
+                	   * 
+                	   * */
                       StatCallback cb = (StatCallback) p.cb;
                       if (rc == 0) {
                           if (p.response instanceof ExistsResponse) {
@@ -685,6 +811,10 @@ public class ClientCnxn {
                           cb.processResult(rc, clientPath, p.ctx, null);
                       }
                   } else if (p.response instanceof GetDataResponse) {
+                	  /**
+                	   * DataCallback
+                	   * 
+                	   * */
                       DataCallback cb = (DataCallback) p.cb;
                       GetDataResponse rsp = (GetDataResponse) p.response;
                       if (rc == 0) {
@@ -695,6 +825,10 @@ public class ClientCnxn {
                                   null);
                       }
                   } else if (p.response instanceof GetACLResponse) {
+                	  /**
+                	   * ACLCallback
+                	   * 
+                	   * */
                       ACLCallback cb = (ACLCallback) p.cb;
                       GetACLResponse rsp = (GetACLResponse) p.response;
                       if (rc == 0) {
@@ -705,6 +839,10 @@ public class ClientCnxn {
                                   null);
                       }
                   } else if (p.response instanceof GetChildrenResponse) {
+                	  /**
+                	   * ChildrenCallback
+                	   * 
+                	   * */
                       ChildrenCallback cb = (ChildrenCallback) p.cb;
                       GetChildrenResponse rsp = (GetChildrenResponse) p.response;
                       if (rc == 0) {
@@ -714,6 +852,10 @@ public class ClientCnxn {
                           cb.processResult(rc, clientPath, p.ctx, null);
                       }
                   } else if (p.response instanceof GetChildren2Response) {
+                	  /**
+                	   * Children2Callback--多一个对stat的关注
+                	   * 
+                	   * */
                       Children2Callback cb = (Children2Callback) p.cb;
                       GetChildren2Response rsp = (GetChildren2Response) p.response;
                       if (rc == 0) {
@@ -723,6 +865,10 @@ public class ClientCnxn {
                           cb.processResult(rc, clientPath, p.ctx, null, null);
                       }
                   } else if (p.response instanceof CreateResponse) {
+                	  /**
+                	   * StringCallback 对于创建节点的api回调
+                	   * 
+                	   * */
                       StringCallback cb = (StringCallback) p.cb;
                       CreateResponse rsp = (CreateResponse) p.response;
                       if (rc == 0) {
@@ -735,6 +881,11 @@ public class ClientCnxn {
                           cb.processResult(rc, clientPath, p.ctx, null);
                       }
                   } else if (p.cb instanceof VoidCallback) {
+                	  /**
+                	   * VoidCallback
+                	   * 不指定对哪个响应数据类型的回调
+                	   * 
+                	   * */
                       VoidCallback cb = (VoidCallback) p.cb;
                       cb.processResult(rc, clientPath, p.ctx);
                   }
@@ -745,11 +896,18 @@ public class ClientCnxn {
        }
     }
 
+    /**
+     * packet请求提交的过程--其结束在这里定义
+     * 将数据包提交以后、需要等待本地watcher事件注册以及packet的api回调进入事件队列才算对该packet处理完了。
+     * 
+     * */
     private void finishPacket(Packet p) {
+    	// 本地事件注册--watcherManager管理本地登记的监听事件
         if (p.watchRegistration != null) {
             p.watchRegistration.register(p.replyHeader.getErr());
         }
 
+        // api回调入事件处理队列
         if (p.cb == null) {
             synchronized (p) {
                 p.finished = true;
@@ -761,6 +919,11 @@ public class ClientCnxn {
         }
     }
 
+    /**
+     * 连接丢失时处理packet
+     * 设置响应的错误码
+     * 
+     * */
     private void conLossPacket(Packet p) {
         if (p.replyHeader == null) {
             return;
@@ -819,21 +982,26 @@ public class ClientCnxn {
      * beats. It also spawns the ReadThread.
      */
     class SendThread extends Thread {
+    	// 绑定与某一个socketChannel的SelectionKey对象
         SelectionKey sockKey;
-
+        // 管理多个socketChannel
         private final Selector selector = Selector.open();
-
+        // 包长度、4个字节
         final ByteBuffer lenBuffer = ByteBuffer.allocateDirect(4);
-
+        // 请求包缓冲区、大小为从lenBuffer读出的长度
         ByteBuffer incomingBuffer = lenBuffer;
 
+        // 是否初始化--连接上了server
         boolean initialized;
 
+        // 最后一次ping的时间(ns)
         private long lastPingSentNs;
 
+        // 发送和接受请求数量
         long sentCount = 0;
         long recvCount = 0;
 
+        // 读取数据包的len
         void readLength() throws IOException {
             int len = incomingBuffer.getInt();
             if (len < 0 || len >= packetLen) {
@@ -842,12 +1010,21 @@ public class ClientCnxn {
             incomingBuffer = ByteBuffer.allocate(len);
         }
 
+        /**
+         * 从incomingBuffer中读连接请求的响应
+         * 注意readConnectResult和readResponse都只是业务上的逻辑处理
+         * 底层的io都在doIO()里 将incomingBuffer准备就绪
+         * 
+         * 响应的序列化格式：connectResp
+         * 
+         * */
         void readConnectResult() throws IOException {
             ByteBufferInputStream bbis = new ByteBufferInputStream(
                     incomingBuffer);
             BinaryInputArchive bbia = BinaryInputArchive.getArchive(bbis);
             ConnectResponse conRsp = new ConnectResponse();
             conRsp.deserialize(bbia, "connect");
+            // 服务端响应的连接时间<=0表示失败
             negotiatedSessionTimeout = conRsp.getTimeOut();
             if (negotiatedSessionTimeout <= 0) {
                 zooKeeper.state = States.CLOSED;
@@ -860,10 +1037,12 @@ public class ClientCnxn {
                         "Unable to reconnect to ZooKeeper service, session 0x"
                         + Long.toHexString(sessionId) + " has expired");
             }
+            // 每次重连都会重置这些timeOut值
             readTimeout = negotiatedSessionTimeout * 2 / 3;
             connectTimeout = negotiatedSessionTimeout / serverAddrs.size();
             sessionId = conRsp.getSessionId();
             sessionPasswd = conRsp.getPasswd();
+            // 状态置为conneted
             zooKeeper.state = States.CONNECTED;
             LOG.info("Session establishment complete on server "
                     + ((SocketChannel)sockKey.channel())
@@ -871,17 +1050,32 @@ public class ClientCnxn {
                     + ", sessionid = 0x"
                     + Long.toHexString(sessionId)
                     + ", negotiated timeout = " + negotiatedSessionTimeout);
+            // syncConected事件入队
             eventThread.queueEvent(new WatchedEvent(Watcher.Event.EventType.None,
                     Watcher.Event.KeeperState.SyncConnected, null));
         }
 
+        /**
+         * 读请求的响应：
+         * 响应的序列化格式：header + response--有些请求是只有header的、例如ping
+         * 
+         * */
         void readResponse() throws IOException {
             ByteBufferInputStream bbis = new ByteBufferInputStream(
                     incomingBuffer);
             BinaryInputArchive bbia = BinaryInputArchive.getArchive(bbis);
             ReplyHeader replyHdr = new ReplyHeader();
 
+            /**
+             * 读取响应header 根据xid判断请求和响应的类型
+             * 
+             * */
             replyHdr.deserialize(bbia, "header");
+            /**
+             * 1 ping请求的响应 响应格式：header
+             *   有响应就代表成功、直接返回
+             * 
+             * */
             if (replyHdr.getXid() == -2) {
                 // -2 is the xid for pings
                 if (LOG.isDebugEnabled()) {
@@ -893,6 +1087,11 @@ public class ClientCnxn {
                 }
                 return;
             }
+            /**
+             * 2 AuthPacket请求的响应 响应格式：header
+             * 	 如果验证成功、直接返回。否则验证失败事件事件处理队列
+             * 
+             * */
             if (replyHdr.getXid() == -4) {
             	 // -4 is the xid for AuthPacket               
                 if(replyHdr.getErr() == KeeperException.Code.AUTHFAILED.intValue()) {
@@ -906,6 +1105,13 @@ public class ClientCnxn {
                 }
                 return;
             }
+            /**
+             * 3 server发来的通知、这个不算数一个响应。
+             *   格式：header + response(WatcherEvent)
+             *   
+             *   直接入事件处理线程队列即可
+             *   
+             * */
             if (replyHdr.getXid() == -1) {
                 // -1 means notification
                 if (LOG.isDebugEnabled()) {
@@ -929,14 +1135,28 @@ public class ClientCnxn {
                     LOG.debug("Got " + we + " for sessionid 0x"
                             + Long.toHexString(sessionId));
                 }
-
+                // 通知事件入事件处理线程队列
                 eventThread.queueEvent( we );
                 return;
             }
+            /**
+             * 4 其他绝大多数一般的情况下的各种api请求的响应：
+             *   将响应填充到packet(即放在请求队列里的请求包)后，将packet扔给EventThread即可
+             *   响应为header + response
+             *   
+             * */
+            /**
+             * 等待响应的packet队列不应为空、因为此时确实收到了一个响应
+             * 
+             * */
             if (pendingQueue.size() == 0) {
                 throw new IOException("Nothing in the queue, but got "
                         + replyHdr.getXid());
             }
+            /**
+             * 读取响应、完善等待响应的packet--将响应内容填充进去
+             * 
+             * */
             Packet packet = null;
             synchronized (pendingQueue) {
                 packet = pendingQueue.remove();
@@ -944,8 +1164,12 @@ public class ClientCnxn {
             /*
              * Since requests are processed in order, we better get a response
              * to the first request!
+             * 
+             * 请求是顺序处理的、递增的xid标识了一个请求和响应的一一对应
+             * 
              */
             try {
+            	// xid标识请求和响应一一对应
                 if (packet.header.getXid() != replyHdr.getXid()) {
                     packet.replyHeader.setErr(
                             KeeperException.Code.CONNECTIONLOSS.intValue());
@@ -954,12 +1178,15 @@ public class ClientCnxn {
                             + packet.header.getXid());
                 }
 
+                // 填充packet的replyHeader
                 packet.replyHeader.setXid(replyHdr.getXid());
                 packet.replyHeader.setErr(replyHdr.getErr());
                 packet.replyHeader.setZxid(replyHdr.getZxid());
+                // 服务端返回的最新的事务id
                 if (replyHdr.getZxid() > 0) {
                     lastZxid = replyHdr.getZxid();
                 }
+                // 填充packet的response
                 if (packet.response != null && replyHdr.getErr() == 0) {
                     packet.response.deserialize(bbia, "response");
                 }
@@ -969,6 +1196,7 @@ public class ClientCnxn {
                             + Long.toHexString(sessionId) + ", packet:: " + packet);
                 }
             } finally {
+            	// 最后对packet做finish处理：本地watcher注册维护+packet进入事件处理队列
                 finishPacket(packet);
             }
         }
@@ -984,6 +1212,10 @@ public class ClientCnxn {
             if (sock == null) {
                 throw new IOException("Socket is null!");
             }
+            /**
+             * 1 socket可读
+             * 
+             * */
             if (sockKey.isReadable()) {
                 int rc = sock.read(incomingBuffer);
                 if (rc < 0) {
@@ -1015,6 +1247,10 @@ public class ClientCnxn {
                     }
                 }
             }
+            /**
+             * 2 socket可写
+             * 
+             * */
             if (sockKey.isWritable()) {
                 synchronized (outgoingQueue) {
                     if (!outgoingQueue.isEmpty()) {
@@ -1032,6 +1268,10 @@ public class ClientCnxn {
                     }
                 }
             }
+            /**
+             * 如果等待发送到packet队列为空、也就意味着现在不需要writable
+             * 
+             * */
             if (outgoingQueue.isEmpty()) {
                 disableWrite();
             } else {
@@ -1337,6 +1577,10 @@ public class ClientCnxn {
                     }
                 }
             }
+            /**
+             * 
+             * 
+             * */
             cleanup();
             try {
                 selector.close();
@@ -1485,6 +1729,9 @@ public class ClientCnxn {
         return r;
     }
 
+    /**
+     * 
+     * */
     Packet queuePacket(RequestHeader h, ReplyHeader r, Record request,
             Record response, AsyncCallback cb, String clientPath,
             String serverPath, Object ctx, WatchRegistration watchRegistration)

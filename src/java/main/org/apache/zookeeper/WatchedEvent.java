@@ -31,6 +31,7 @@ import org.apache.zookeeper.Watcher.Event.KeeperState;
  *  注意：
  *  1 WatchedEvent与WatcherEvent是等价的、WatcherEvent在通信协议里定义是可以序列化通过网络发送到对象
  *    而WatchedEvent是用枚举定义的 用于在逻辑代码里更好的识别  ---它们之间存在一个转换
+ *  2 事件包含三个部分：server的连接状态、事件类型、路径
  *  
  */
 public class WatchedEvent {

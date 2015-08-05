@@ -176,8 +176,7 @@ public class ZooKeeper {
          * @stat 触发该watch的server状态
          * @clientPath 被触发watch的节点
          * 
-         * @return 返回该watch被触发后 还有那些watch
-         * 
+         * @return 返回与该事件相关的watcher--即基于该事件的watch，以便处理
          * 
          */
         public Set<Watcher> materialize(Watcher.Event.KeeperState state,
@@ -296,6 +295,7 @@ public class ZooKeeper {
          * add the watch on the path.
          * 
          * 注册该watch(watcher + clientPath)
+         * @rc 添加该watch的操作的结果
          * 
          */
         public void register(int rc) {
@@ -329,7 +329,7 @@ public class ZooKeeper {
     /** Handle the special case of exists watches - they add a watcher
      * even in the case where NONODE result code is returned.
      * 
-     * ExistWatch特殊处理 
+     * ExistWatch特殊处理 抛出NONODE异常时也添加
      * 
      */
     class ExistsWatchRegistration extends WatchRegistration {
@@ -370,6 +370,9 @@ public class ZooKeeper {
         }
     }
 
+    /**
+     * 客户端状态定义
+     * */
     public enum States {
         CONNECTING, ASSOCIATING, CONNECTED, CLOSED, AUTH_FAILED;
 
@@ -377,9 +380,16 @@ public class ZooKeeper {
             return this != CLOSED && this != AUTH_FAILED;
         }
     }
-
+    
+    /**
+     * volatile
+     * */ 
     volatile States state;
 
+    /**
+     * 持有的客户端上下文 所以请求实际的执行者
+     * 
+     * */
     protected final ClientCnxn cnxn;
 
     /**
