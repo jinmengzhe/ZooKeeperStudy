@@ -232,7 +232,7 @@ public class ClientCnxn {
     final SendThread sendThread;
 
     /**
-     * 事件处理的线程--处理到server的通知、监听事件等
+     * 事件处理的线程--处理到server的通知、监听事件、以及api调用的回调事件
      * 核心代码
      * 
      * */
@@ -583,8 +583,8 @@ public class ClientCnxn {
     }
 
     /**
-     * 上下文死掉的事件？？？
-     * TODO
+     * 上下文死掉的事件 特殊定义的通知关闭客户端的事件
+     * 
      * */
     Object eventOfDeath = new Object();
 
@@ -686,7 +686,7 @@ public class ClientCnxn {
         }
 
         /**
-         * 将请求包Packet加入事件处理队列
+         * 将请求包Packet加入事件处理队列--api的事件回调
          * 
          * */
        public void queuePacket(Packet packet) {
@@ -907,13 +907,27 @@ public class ClientCnxn {
             p.watchRegistration.register(p.replyHeader.getErr());
         }
 
-        // api回调入事件处理队列
+        /**
+         * 是否有api回调：必须知道Zookeeper类api的两种使用方式(因为第二种方式以前用的少、导致这里代码一开始没看懂)
+         * -----
+         * 1 返回数据的同步api：
+         * 					  即不带CallBack的api、直接返回数据给用户、这种请求是同步请求、通过submitRequest提交然后wait
+         * 
+         * 2 不需要返回数据的异步api:
+         * 					  带CallBack的异步api、这种请求用户定义了返回数据以后、根据返回数据回调里做什么---而不需要直接将数据返回用户。
+         * 					  这种请求直接将packet放入待发送的请求队列、进入后续流程 
+         * 
+         * */
         if (p.cb == null) {
+        	// 没有api回调、直接finish、通知packet上的wait
             synchronized (p) {
                 p.finished = true;
                 p.notifyAll();
             }
         } else {
+        	// api回调入事件处理队列、这种情况下在哪里通知packet上的wait？？？？？TODO
+        	// 擦 终于明白 异步CallBack api不是通过submitRequest提交的、而是直接放入请求发送队列的
+        	// 
             p.finished = true;
             eventThread.queuePacket(p);
         }
@@ -1056,8 +1070,9 @@ public class ClientCnxn {
         }
 
         /**
-         * 读请求的响应：
-         * 响应的序列化格式：header + response--有些请求是只有header的、例如ping
+         * 不仅仅是读取响应：
+         * 		1 读请求的响应     响应的序列化格式：header + response--有些请求是只有header的、例如ping
+         * 		2 读到响应后的事情（本地watch维护+packet api回调进入EventThread事件队列）
          * 
          * */
         void readResponse() throws IOException {
@@ -1205,6 +1220,13 @@ public class ClientCnxn {
          * @return true if a packet was received
          * @throws InterruptedException
          * @throws IOException
+         * 
+         * 1 doIO在sendThread线程死循环里。做的事情:
+         * 	  1) socket可读时：去读请求--参见readResponse()----有三种情况、参见注释
+         *    2) socket可写时：从待发送队列outgoingQueue取请求发送、这个比较简单
+         *    
+         * 2 以上各种情况、只有当可读且读到了响应packet时、才返回true
+         * 
          */
         boolean doIO() throws InterruptedException, IOException {
             boolean packetReceived = false;
@@ -1227,9 +1249,15 @@ public class ClientCnxn {
                 if (!incomingBuffer.hasRemaining()) {
                     incomingBuffer.flip();
                     if (incomingBuffer == lenBuffer) {
+                        /**
+                         * 先读length、这也是常见的一种处理方式
+                         * */
                         recvCount++;
                         readLength();
                     } else if (!initialized) {
+                    	/**
+                    	 * 如果还没有连上server、先去连server
+                    	 * */
                         readConnectResult();
                         enableRead();
                         if (!outgoingQueue.isEmpty()) {
@@ -1240,6 +1268,10 @@ public class ClientCnxn {
                         packetReceived = true;
                         initialized = true;
                     } else {
+                    	/**
+                    	 * 读响应：注意真正的很多逻辑都在readResponse里面(读到响应后做的事情)
+                    	 * 
+                    	 * */
                         readResponse();
                         lenBuffer.clear();
                         incomingBuffer = lenBuffer;
@@ -1249,6 +1281,7 @@ public class ClientCnxn {
             }
             /**
              * 2 socket可写
+             *   从待发送队列取packet、写socket、将packet放进待响应的队列
              * 
              * */
             if (sockKey.isWritable()) {
@@ -1308,6 +1341,10 @@ public class ClientCnxn {
             }
         }
 
+        /**
+         * 后台线程、设置开始connecting
+         * 
+         * */
         SendThread() throws IOException {
             super(makeThreadName("-SendThread()"));
             zooKeeper.state = States.CONNECTING;
@@ -1315,12 +1352,25 @@ public class ClientCnxn {
             setDaemon(true);
         }
 
+        /**
+         * 真正的对server建立连接是在这个函数里：
+         * @k  已经选择好了点对应的server的SelectionKey
+         * 
+         * 1 watch重建
+         * 2 验证请求
+         * 3 连接请求
+         * 
+         * 注意这里的连接都只是将相关请求放入发送队列、还并没有得到server端的响应(甚至请求还没有发出去)。
+         * 
+         * */
         private void primeConnection(SelectionKey k) throws IOException {
             LOG.info("Socket connection established to "
                     + ((SocketChannel)sockKey.channel())
                         .socket().getRemoteSocketAddress()
                     + ", initiating session");
+            // 连接下标维护
             lastConnectIndex = currentConnectIndex;
+            // 连接请求构造
             ConnectRequest conReq = new ConnectRequest(0, lastZxid,
                     sessionTimeout, sessionId, sessionPasswd);
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -1331,6 +1381,7 @@ public class ClientCnxn {
             ByteBuffer bb = ByteBuffer.wrap(baos.toByteArray());
             bb.putInt(bb.capacity() - 4);
             bb.rewind();
+            // 1 watch重建、此时outgoingQueue不应该再有新请求进入
             synchronized (outgoingQueue) {
                 // We add backwards since we are pushing into the front
                 // Only send if there's a pending watch
@@ -1352,15 +1403,17 @@ public class ClientCnxn {
                         outgoingQueue.addFirst(packet);
                     }
                 }
-
+                // 2 验证信息放入发送队列
                 for (AuthData id : authInfo) {
                     outgoingQueue.addFirst(new Packet(new RequestHeader(-4,
                             OpCode.auth), null, new AuthPacket(0, id.scheme,
                             id.data), null, null, null));
                 }
+                // 3 连接请求放入发送对了
                 outgoingQueue.addFirst((new Packet(null, null, null, null, bb,
                         null)));
             }
+            // 开启读写io的epoll关注
             synchronized (this) {
                 k.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
             }
@@ -1371,6 +1424,10 @@ public class ClientCnxn {
             }
         }
 
+        /**
+         * 真正的root重新调整
+         * 
+         * */
         private List<String> prependChroot(List<String> paths) {
             if (chrootPath != null && !paths.isEmpty()) {
                 for (int i = 0; i < paths.size(); ++i) {
@@ -1388,12 +1445,17 @@ public class ClientCnxn {
             return paths;
         }
 
+        /**
+         * ping请求
+         * 
+         * */
         private void sendPing() {
             lastPingSentNs = System.nanoTime();
             RequestHeader h = new RequestHeader(-2, OpCode.ping);
             queuePacket(h, null, null, null, null, null, null, null, null);
         }
 
+        // 维护连接server list的策略
         int lastConnectIndex = -1;
 
         int currentConnectIndex;
@@ -1423,6 +1485,7 @@ public class ClientCnxn {
             zooKeeper.state = States.CONNECTING;
             currentConnectIndex = nextAddrToTry;
             InetSocketAddress addr = serverAddrs.get(nextAddrToTry);
+            // 环形重试
             nextAddrToTry++;
             if (nextAddrToTry == serverAddrs.size()) {
                 nextAddrToTry = 0;
@@ -1436,9 +1499,16 @@ public class ClientCnxn {
             setName(getName().replaceAll("\\(.*\\)",
                     "(" + addr.getHostName() + ":" + addr.getPort() + ")"));
             try {
+            	/**
+            	 * Note：
+            	 * 这里已经建立起了socket连接、但是从用户看到的逻辑层面角度来说、还没有连接成功。
+            	 * 只有当primeConnection中做了watch重建、验证信息、发送并接受到了server端的请求才算是用户看到的建立了连接。
+            	 * 
+            	 * */
                 sockKey = sock.register(selector, SelectionKey.OP_CONNECT);
                 boolean immediateConnect = sock.connect(addr);
                 if (immediateConnect) {
+                	// 实际的连接操作在这
                     primeConnection(sockKey);
                 }
             } catch (IOException e) {
@@ -1446,6 +1516,12 @@ public class ClientCnxn {
                 sock.close();
                 throw e;
             }
+            /**
+             * 注意为什么这里是false、
+             *  primeConnection(sockKey)只是做了将连接需要的请求放到发送队列、还并没有连接成功、甚至还没有发送出去
+             *  只有当在diIO里面发现尚未连接、去readConnectResult()、读到了服务端的响应才会将initialized置为true
+             * 
+             * */
             initialized = false;
 
             /*
@@ -1458,13 +1534,26 @@ public class ClientCnxn {
         private static final String RETRY_CONN_MSG =
             ", closing socket connection and attempting reconnect";
         
+        
+        /**
+         * SendThread的死循环在这
+         * 
+         * */
         @Override
         public void run() {
             long now = System.currentTimeMillis();
             long lastHeard = now;
             long lastSend = now;
             while (zooKeeper.state.isAlive()) {
+            	/**
+            	 * 所有代码被catch、即使出现异常、也继续执行下一次while
+            	 * 
+            	 * **/
                 try {
+                	/**
+                	 * 1 初始条件检测
+                	 * 
+                	 * */
                     if (sockKey == null) {
                         // don't re-establish connection if we are closing
                         if (closing) {
@@ -1474,6 +1563,12 @@ public class ClientCnxn {
                         lastSend = now;
                         lastHeard = now;
                     }
+                    
+                    /**
+                     * 2 SessionTimeout检测
+                     * TODO 这几个时间的含义
+                     * 
+                     * */
                     int idleRecv = (int) (now - lastHeard);
                     int idleSend = (int) (now - lastSend);
                     int to = readTimeout - idleRecv;
@@ -1487,6 +1582,11 @@ public class ClientCnxn {
                                 + " for sessionid 0x"
                                 + Long.toHexString(sessionId));
                     }
+                    
+                    /**
+                     * 3 发送ping
+                     * 
+                     * */
                     if (zooKeeper.state == States.CONNECTED) {
                         int timeToNextPing = readTimeout/2 - idleSend;
                         if (timeToNextPing <= 0) {
@@ -1500,6 +1600,12 @@ public class ClientCnxn {
                         }
                     }
 
+                    /**
+                     * 4 正常的IO读写开始
+                     * 虽然这里是有一个for循环、但其实只有一个socketKey绑定到了该selector上
+                     * 
+                     * */
+                    // 阻塞式的设定超时时间select
                     selector.select(to);
                     Set<SelectionKey> selected;
                     synchronized (this) {
@@ -1512,12 +1618,14 @@ public class ClientCnxn {
                     for (SelectionKey k : selected) {
                         SocketChannel sc = ((SocketChannel) k.channel());
                         if ((k.readyOps() & SelectionKey.OP_CONNECT) != 0) {
+                        	// 1 建立连接
                             if (sc.finishConnect()) {
                                 lastHeard = now;
                                 lastSend = now;
                                 primeConnection(k);
                             }
                         } else if ((k.readyOps() & (SelectionKey.OP_READ | SelectionKey.OP_WRITE)) != 0) {
+                        	// 2 正常读写
                             if (outgoingQueue.size() > 0) {
                                 // We have something to send so it's the same
                                 // as if we do the send now.
@@ -1528,6 +1636,10 @@ public class ClientCnxn {
                             }
                         }
                     }
+                    /**
+                     * socket状态维护
+                     * 
+                     * */
                     if (zooKeeper.state == States.CONNECTED) {
                         if (outgoingQueue.size() > 0) {
                             enableWrite();
@@ -1577,9 +1689,10 @@ public class ClientCnxn {
                     }
                 }
             }
+            
             /**
-             * 
-             * 
+             * 如果收到了关闭客户端的命令、退出while循环
+             * 关闭socket和epoll退出
              * */
             cleanup();
             try {
@@ -1597,6 +1710,10 @@ public class ClientCnxn {
                                      "SendThread exitedloop.");
         }
 
+        /**
+         * 关闭当前与server连接的socket
+         * 
+         * */
         private void cleanup() {
             if (sockKey != null) {
                 SocketChannel sock = (SocketChannel) sockKey.channel();
@@ -1669,6 +1786,9 @@ public class ClientCnxn {
      * directly - rather it should be called as part of close operation. This
      * method is primarily here to allow the tests to verify disconnection
      * behavior.
+     * 
+     * 不直接调用：关闭sendThread和eventThread
+     * 
      */
     public void disconnect() {
         if (LOG.isDebugEnabled()) {
@@ -1685,6 +1805,9 @@ public class ClientCnxn {
      * server, shutdown the send/event threads.
      *
      * @throws IOException
+     * 
+     * 暴漏给Zookeeper直接使用、发送给server关闭命令、再调研disconnect()
+     * 
      */
     public void close() throws IOException {
         if (LOG.isDebugEnabled()) {
@@ -1715,6 +1838,24 @@ public class ClientCnxn {
         return xid++;
     }
 
+    /**
+     * 组装和提交request、调用queuePacket()放进发送队列、此时不会退出submitRequest。
+     * 等待packet完成、即finishPacket--submitRequest才会退出。
+     * 
+     * 所以这里是一个异步等待的方式、理解这一流程:
+     * 1 packet请求提交到发送队列、等待packet finish
+     * 2 SendThread线程：发送请求、读取响应-->
+     * 3 读到响应后、finishPacket(本地watch维护+packet进入api事件回调处理队列+唤醒packet上的wait)
+     * 
+     * 为返回数据的同步请求而设计、Zookeeper里面的同步api、要求返回数据、使用该方法提交请求、
+     * 等待直到返回数据。
+     * ----
+     * 而下面的方法queuePacket为异步的CallBack而设计、这种在Zookeeper的api里不需要给用户返回数据、而是直接放入发送队列
+     * 后续拿到结果以后执行响应的回调即可。
+     * -------
+     * fuck 终于理解了finishPacket里面的为什么else里面没有notify了--参见finishPacket
+     * 
+     * */
     public ReplyHeader submitRequest(RequestHeader h, Record request,
             Record response, WatchRegistration watchRegistration)
             throws InterruptedException {
@@ -1730,6 +1871,10 @@ public class ClientCnxn {
     }
 
     /**
+     * 请求组装+放入待发送队列
+     * 该方法公开给Zookeeper类调用、该方法的参数都是用来组装Packet的
+     * 
+     * @return 组装后的packet、后续处理完后还要从该packet中去response
      * 
      * */
     Packet queuePacket(RequestHeader h, ReplyHeader r, Record request,
@@ -1763,6 +1908,11 @@ public class ClientCnxn {
         return packet;
     }
 
+    /**
+     * 验证信息：添加到authInfo + 发给服务端
+     * xid=-4
+     * 
+     * */
     public void addAuthInfo(String scheme, byte auth[]) {
         if (!zooKeeper.state.isAlive()) {
             return;
