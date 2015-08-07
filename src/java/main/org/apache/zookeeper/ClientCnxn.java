@@ -711,7 +711,7 @@ public class ClientCnxn {
         /**
          * 死循环、阻塞式出队、处理事件。
          * waskilled用于标志是否接收到eventOfDeath事件
-         * isRunning用于控制在接手到killed事件后、将剩余的队列中的事件执行完、然后退出死循环、即线程执行完毕退出。
+         * isRunning用于控制在接受到killed事件后、将剩余的队列中的事件执行完、然后退出死循环、即线程执行完毕退出。
          * 
          * */
         @Override
@@ -898,7 +898,7 @@ public class ClientCnxn {
 
     /**
      * packet请求提交的过程--其结束在这里定义
-     * 将数据包提交以后、需要等待本地watcher事件注册以及packet的api回调进入事件队列才算对该packet处理完了。
+     * 将数据包提交以后、需要等待发送队列发送、读取响应、本地watcher事件注册以及packet的api回调进入事件队列才算对该packet处理完了。
      * 
      * */
     private void finishPacket(Packet p) {
@@ -1566,7 +1566,12 @@ public class ClientCnxn {
                     
                     /**
                      * 2 SessionTimeout检测
-                     * TODO 这几个时间的含义
+                     * 注意这个是非常非常重要的、zk客户端保证请求和响应的一一对应和顺序、
+                     * 那么超时就非常重要、否则如果前面的某个请求一直没有响应就会阻塞在那。
+                     * 
+                     * 所以每次进入while都要首先检测是否超时、这种超时的时间是由作者定义的！！！！！
+                     * 
+                     * TODO 这几个时间的含义 以及为什么这样设计超时时间
                      * 
                      * */
                     int idleRecv = (int) (now - lastHeard);
@@ -1585,6 +1590,8 @@ public class ClientCnxn {
                     
                     /**
                      * 3 发送ping
+                     * 这个也很重要、当上一次发送请求的时间间隔 > readTimeout/2时---例如极端情况：可能很久没有正常的api调用
+                     * 那么就发送一个ping。这种策略保证如果一直都有很紧凑的正常请求、就不需要发送ping
                      * 
                      * */
                     if (zooKeeper.state == States.CONNECTED) {
@@ -1649,6 +1656,13 @@ public class ClientCnxn {
                     }
                     selected.clear();
                 } catch (Throwable e) {
+                	/**
+                	 * 在这处理异常、这个是非常非常重要的、注意客户端的请求投递保证：
+                	 * 请求按顺序发送、响应按顺序接受(tcp/ip保证顺序)、由outgoingQueue和pendingQueue两个队列来保证这种顺序
+                	 * 如果发现不一致、说明出错了或者超时---所以这里超时的维护也非常非常重要、zk是这样实现超时的--每次执行while都要判断超时时间
+                	 * 那么就进入异常处理、断开连接、清空之前的待发送队列和待响应队列、重新开始。
+                	 * 
+                	 * */
                     if (closing) {
                         if (LOG.isDebugEnabled()) {
                             // closing so this is expected
@@ -1693,6 +1707,7 @@ public class ClientCnxn {
             /**
              * 如果收到了关闭客户端的命令、退出while循环
              * 关闭socket和epoll退出
+             * 
              * */
             cleanup();
             try {
@@ -1711,7 +1726,10 @@ public class ClientCnxn {
         }
 
         /**
-         * 关闭当前与server连接的socket
+         * 1 关闭当前与server连接的socket
+         * 2 清空待发送队列和待响应队列
+         * 注意这个是很重要的、请求和响应是顺序的、一一对应的、发送出去的请求必须要有一个响应回来、再考虑下一个请求的响应
+         * 如果没有或者响应的不是这个请求、就说明超时或者出错了、那么进入异常处理过程、直接cleanup然后重新连接
          * 
          * */
         private void cleanup() {
