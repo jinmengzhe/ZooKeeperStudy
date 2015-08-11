@@ -100,6 +100,12 @@ import org.apache.zookeeper.server.DataTree;
  * the event handler a connection has been dropped. This special event has type
  * EventNone and state sKeeperStateDisconnected.
  *
+ *  1 客户端入口：提供同步调用和异步callback调用两种类型的api操作---在ClientCnxn里面已经详细分析过
+ *  2 数十种上述api的封装--代码大同小异、因为底层真正的io和事件处理都在ClientCnxn代码里，Zookeeper类只是在上层封装。
+ *    所以看完了ClientCnxn的代码再来看Zookeeper类就很容易----我们也很容易为Zookeeper开发新的api
+ *  3 线程安全
+ *  4 所以综上:如果理解了ClientCnxn、下面的代码没啥好看的、都是重复代码-----详细阅读每一个注释、深刻理解每个api吧。
+ *    
  */
 public class ZooKeeper {
     private static final Logger LOG;
@@ -142,7 +148,7 @@ public class ZooKeeper {
      * the public methods will not be exposed as part of the ZooKeeper client
      * API.
      * 
-     * 这个类作为Zookeeper的一个包含的对象 管理着所有的watch
+     * 这个类作为Zookeeper的一个包含的对象 管理着所有在客户端本地维护的watch
      * 
      */
     private static class ZKWatchManager implements ClientWatchManager {
@@ -387,7 +393,7 @@ public class ZooKeeper {
     volatile States state;
 
     /**
-     * 持有的客户端上下文 所以请求实际的执行者
+     * 持有的客户端上下文 所有请求实际的执行者
      * 
      * */
     protected final ClientCnxn cnxn;
