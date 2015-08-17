@@ -38,6 +38,9 @@ import org.apache.log4j.Logger;
  *      (bc)
  *   cf/
  *   (cf)
+ *   
+ *   路径的单词查找树:一棵PathTrie用于保存zk数据模型的的树形结构。
+ *   
  */    
 public class PathTrie {
     /**
@@ -50,6 +53,13 @@ public class PathTrie {
      */
     private final TrieNode rootNode ;
     
+    /**
+     * 节点定义：
+     * @property 是否非叶子节点 true表示下面还有子节点 false表示是叶子节点
+     * @children 子节点集合
+     * @parent   父节点、注意这是一个待父节点指针的树
+     * 
+     * */
     static class TrieNode {
         boolean property = false;
         final HashMap<String, TrieNode> children;

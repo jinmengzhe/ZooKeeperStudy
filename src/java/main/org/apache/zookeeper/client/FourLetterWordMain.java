@@ -26,6 +26,10 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
 
+/**
+ * 四字命令java命令行
+ * 
+ * */
 public class FourLetterWordMain {
     protected static final Logger LOG = Logger.getLogger(FourLetterWordMain.class);
     
