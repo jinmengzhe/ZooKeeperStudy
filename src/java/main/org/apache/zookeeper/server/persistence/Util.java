@@ -44,6 +44,10 @@ import org.apache.zookeeper.txn.TxnHeader;
 /**
  * A collection of utility methods for dealing with file name parsing, 
  * low level I/O file operations and marshalling/unmarshalling.
+ * 
+ * 处理log.xxxx和snapshot.xxx文件名的工具类
+ * 
+ * 
  */
 public class Util {
     private static final Logger LOG = Logger.getLogger(Util.class);
@@ -52,6 +56,10 @@ public class Util {
     private static final String DB_FORMAT_CONV="dbFormatConversion";
     private static final ByteBuffer fill = ByteBuffer.allocateDirect(1);
     
+    /**
+     * 没用到的方法
+     * 
+     * */
     public static String makeURIString(String dataDir, String dataLogDir, 
             String convPolicy){
         String uri="file:"+SNAP_DIR+"="+dataDir+";"+LOG_DIR+"="+dataLogDir;
@@ -68,11 +76,18 @@ public class Util {
      * @param dataDir snapshot directory
      * @param dataLogDir transaction log directory
      * @return logfile provider URI
+     * 
+     * 没用到的方法
+     * 
      */
     public static URI makeFileLoggerURL(File dataDir, File dataLogDir){
         return URI.create(makeURIString(dataDir.getPath(),dataLogDir.getPath(),null));
     }
     
+    /**
+     * 没用到的方法
+     * 
+     * */
     public static URI makeFileLoggerURL(File dataDir, File dataLogDir,String convPolicy){
         return URI.create(makeURIString(dataDir.getPath(),dataLogDir.getPath(),convPolicy));
     }
@@ -82,6 +97,9 @@ public class Util {
      * 
      * @param zxid used as a file name suffix (extention)
      * @return file name
+     * 
+     * log的文件名:log.$zxid
+     * 
      */
     public static String makeLogName(long zxid) {
         return "log." + Long.toHexString(zxid);
@@ -92,6 +110,9 @@ public class Util {
      * 
      * @param zxid used as a suffix
      * @return file name
+     * 
+     * snapshot的文件名:snapshot.$zxid
+     * 
      */
     public static String makeSnapshotName(long zxid) {
         return "snapshot." + Long.toHexString(zxid);
@@ -102,6 +123,9 @@ public class Util {
      * 
      * @param props properties container
      * @return file representing the snapshot directory
+     * 
+     * 配置中定义snapshot文件存放的目录:snapDir
+     * 
      */
     public static File getSnapDir(Properties props){
         return new File(props.getProperty(SNAP_DIR));
@@ -112,6 +136,9 @@ public class Util {
      * 
      * @param props properties container
      * @return file representing the txn log directory
+     * 
+     * 配置中定义log文件存放的目录:logDir
+     * 
      */
     public static File getLogDir(Properties props){
         return new File(props.getProperty(LOG_DIR));
@@ -122,6 +149,8 @@ public class Util {
      * 
      * @param props properties container
      * @return value of the dbFormatConversion attribute
+     * 
+     * 没用到的方法
      */
     public static String getFormatConversionPolicy(Properties props){
         return props.getProperty(DB_FORMAT_CONV);
@@ -134,6 +163,9 @@ public class Util {
      * @param name the file name to parse
      * @param prefix the file name prefix (snapshot or log)
      * @return zxid
+     * 
+     * 文件名格式：log.$zxid或者snapshot.zxid
+     * 
      */
     public static long getZxidFromName(String name, String prefix) {
         long zxid = -1;
