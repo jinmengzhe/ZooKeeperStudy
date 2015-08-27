@@ -34,15 +34,20 @@ import org.apache.log4j.Logger;
  * zookeeper MBeans with the platform MBean server. It builds a hierarchy of MBeans
  * where each MBean represented by a filesystem-like path. Eventually, this hierarchy
  * will be stored in the zookeeper data tree instance as a virtual data tree.
+ * 
+ * 每个Mbean由一个path表示
+ * 
  */
 public class MBeanRegistry {
     private static final Logger LOG = Logger.getLogger(MBeanRegistry.class);
     
     private static MBeanRegistry instance=new MBeanRegistry(); 
     
+    // MBean->path  path表示Mbean注册在该path下
+    // objectName由path+Mbean组合而成
     private Map<ZKMBeanInfo, String> mapBean2Path =
         new ConcurrentHashMap<ZKMBeanInfo, String>();
-    
+    // beanName->MBean
     private Map<String, ZKMBeanInfo> mapName2Bean =
         new ConcurrentHashMap<String, ZKMBeanInfo>();
 
@@ -65,9 +70,11 @@ public class MBeanRegistry {
             path = mapBean2Path.get(parent);
             assert path != null;
         }
+        // bean注册在该path下
         path = makeFullPath(path, parent);
         mapBean2Path.put(bean, path);
         mapName2Bean.put(bean.getName(), bean);
+        // 注册mbean跟objectName
         if(bean.isHidden())
             return;
         MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
@@ -84,6 +91,10 @@ public class MBeanRegistry {
      * Unregister the MBean identified by the path.
      * @param path
      * @param bean
+     * 
+     * 私有方法
+     * 取消注册:根据path + bean组装objectName来取消
+     * 
      */
     private void unregister(String path,ZKMBeanInfo bean) throws JMException {
         if(path==null)
@@ -91,6 +102,7 @@ public class MBeanRegistry {
         if (!bean.isHidden()) {
             MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
             try {
+            	// 根据objectName取消注册
                 mbs.unregisterMBean(makeObjectName(path, bean));
             } catch (JMException e) {
                 LOG.warn("Failed to unregister MBean " + bean.getName());
@@ -102,6 +114,9 @@ public class MBeanRegistry {
     /**
      * Unregister MBean.
      * @param bean
+     * 
+     * public方法、取消注册mbean并且维护两个map
+     * 
      */
     public void unregister(ZKMBeanInfo bean) {
         if(bean==null)
@@ -134,6 +149,12 @@ public class MBeanRegistry {
      * @param prefix path prefix
      * @param name path elements
      * @return absolute path
+     * 产生一个绝对路径、将name拼接到prefix后面
+     * 1 如果prefix==null或者prefix
+     *   返回/name1/name2 
+     * 2 如果prefix=/xxx/yyy
+     *   返回/xxx/yyy/name1/name2
+     * 
      */
     public String makeFullPath(String prefix, String... name) {
         StringBuilder sb=new StringBuilder(prefix == null ? "/" : (prefix.equals("/")?prefix:prefix+"/"));
@@ -149,6 +170,10 @@ public class MBeanRegistry {
         return sb.toString();
     }
     
+    /**
+     * 返回/prefix/${bean.name}
+     * 
+     * */
     protected String makeFullPath(String prefix, ZKMBeanInfo bean) {
         return makeFullPath(prefix, bean == null ? null : bean.getName());
     }
@@ -172,6 +197,9 @@ public class MBeanRegistry {
      * @param path MBean path
      * @param bean the MBean instance
      * @return ObjectName to be registered with the platform MBean server
+     * 
+     * 格式: DOMAIN:name0=xxx,name1=yyy,name2=zzz
+     * 
      */
     protected ObjectName makeObjectName(String path, ZKMBeanInfo bean)
         throws MalformedObjectNameException
@@ -182,7 +210,7 @@ public class MBeanRegistry {
         int counter=0;
         counter=tokenize(beanName,path,counter);
         tokenize(beanName,bean.getName(),counter);
-        beanName.deleteCharAt(beanName.length()-1);
+        beanName.deleteCharAt(beanName.length()-1);// 去除最后一个逗号
         try {
             return new ObjectName(beanName.toString());
         } catch (MalformedObjectNameException e) {

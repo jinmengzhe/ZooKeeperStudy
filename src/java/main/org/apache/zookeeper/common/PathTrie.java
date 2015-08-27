@@ -57,7 +57,7 @@ public class PathTrie {
      * 节点定义：
      * @property 是否非叶子节点 true表示下面还有子节点 false表示是叶子节点
      * @children 子节点集合
-     * @parent   父节点、注意这是一个待父节点指针的树
+     * @parent   父节点、注意这是一个持有父节点指针的树
      * 
      * */
     static class TrieNode {

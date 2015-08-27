@@ -32,6 +32,9 @@ import org.apache.log4j.spi.LoggerRepository;
 
 /**
  * Shared utilities
+ * 
+ * 注册log4j相关的JMX mbean
+ * 
  */
 public class ManagedUtil {
     /**
@@ -50,6 +53,7 @@ public class ManagedUtil {
         // Create and Register the top level Log4J MBean
         HierarchyDynamicMBean hdm = new HierarchyDynamicMBean();
 
+        // 注册一个Mbean-objectName
         ObjectName mbo = new ObjectName("log4j:hiearchy=default");
         mbs.registerMBean(hdm, mbo);
 

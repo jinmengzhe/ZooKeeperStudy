@@ -51,21 +51,28 @@ import org.apache.zookeeper.txn.TxnHeader;
  * <p>
  * The format of a Transactional log is as follows:
  * <blockquote><pre>
+ * 
+ * 1 log.xxx文件由以下三部分组成
  * LogFile:
  *     FileHeader TxnList ZeroPad
  * 
+ * 2 FileHeader的格式
  * FileHeader: {
  *     magic 4bytes (ZKLG)
  *     version 4bytes
  *     dbid 8bytes
  *   }
  * 
+ * 3 TxnList的格式:由若干行Txn组成、即每一行是一条日志
  * TxnList:
  *     Txn || Txn TxnList
- *     
+ * 
+ * 
+ * 3.1 解释每一行Txn的格式
  * Txn:
  *     checksum Txnlen TxnHeader Record 0x42
  * 
+ * 3.2 Txn每个字段详解
  * checksum: 8bytes Adler32 is currently used
  *   calculated across payload -- Txnlen, TxnHeader, Record and 0x42
  * 
@@ -82,7 +89,9 @@ import org.apache.zookeeper.txn.TxnHeader;
  *     
  * Record:
  *     See Jute definition file for details on the various record types
- *      
+ * 
+ * 
+ * 4 文件结束0 padded
  * ZeroPad:
  *     0 padded to EOF (filled during preallocation stage)
  * </pre></blockquote> 
