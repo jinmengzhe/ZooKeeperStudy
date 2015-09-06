@@ -313,6 +313,9 @@ public class Util {
     /**
      * Compare file file names of form "prefix.version". Sort order result
      * returned in order of version.
+     * 
+     * zxid升序or降序排列
+     * 
      */
     private static class DataDirFileComparator
         implements Comparator<File>, Serializable
@@ -344,6 +347,10 @@ public class Util {
      * @param ascending true sorted in ascending order, false results in
      * descending order
      * @return sorted input files
+     * 
+     * 对files进行排序 用于对log.xxx和snapshot.xxx进行排序和查找
+     * @ascending 是否按照zxid升序排练
+     * 
      */
     public static List<File> sortDataDir(File[] files, String prefix, boolean ascending)
     {

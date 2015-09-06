@@ -27,6 +27,8 @@ import org.apache.zookeeper.jmx.ZKMBeanInfo;
 
 /**
  * This class implements the ZooKeeper server MBean interface.
+ * 包装ZooKeeperServer中的值
+ * 
  */
 public class ZooKeeperServerBean implements ZooKeeperServerMXBean, ZKMBeanInfo {
     private final Date startTime;

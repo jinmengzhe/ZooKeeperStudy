@@ -486,6 +486,9 @@ public class FileTxnLog implements TxnLog {
     /**
      * this class implements the txnlog iterator interface
      * which is used for reading the transaction logs
+     * 
+     * 迭代器
+     * 
      */
     public static class FileTxnIterator implements TxnLog.TxnIterator {
         File logDir;
@@ -667,5 +670,4 @@ public class FileTxnLog implements TxnLog {
             inputStream.close();
         }
     }
-
 }

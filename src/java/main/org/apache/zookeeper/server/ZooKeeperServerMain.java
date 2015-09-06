@@ -30,6 +30,8 @@ import org.apache.zookeeper.server.quorum.QuorumPeerConfig.ConfigException;
 
 /**
  * This class starts and runs a standalone ZooKeeperServer.
+ * run单机的ZK
+ * 
  */
 public class ZooKeeperServerMain {
     private static final Logger LOG =

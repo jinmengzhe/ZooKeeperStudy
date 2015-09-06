@@ -27,6 +27,10 @@ import java.util.Date;
 
 import org.apache.zookeeper.ZooDefs.OpCode;
 
+/**
+ * 略
+ * 
+ * */
 public class TraceFormatter {
 
     static String op2String(int op) {
