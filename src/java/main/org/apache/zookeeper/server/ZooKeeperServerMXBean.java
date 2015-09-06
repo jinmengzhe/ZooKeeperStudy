@@ -20,6 +20,8 @@ package org.apache.zookeeper.server;
 
 /**
  * ZooKeeper server MBean.
+ * 
+ * Server端Mbean
  */
 public interface ZooKeeperServerMXBean {
     /**

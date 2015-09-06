@@ -21,6 +21,9 @@ package org.apache.zookeeper.server;
 
 /**
  * Basic Server Statistics
+ * 
+ * Server端的统计指标
+ * 
  */
 public class ServerStats {
     private long packetsSent;

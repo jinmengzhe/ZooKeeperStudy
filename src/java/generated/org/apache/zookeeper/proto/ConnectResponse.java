@@ -26,7 +26,7 @@ import org.apache.jute.*;
  * zk实例给客户端连接请求的响应：
  * @protocolVersion  忽略
  * 
- * ---感觉这些信息不是很必要啊---TODO
+ * 
  * @timeOut          此次连接的超时时间
  * @sessionId        此次连接的sessionId
  * @passwd           此次连接的验证信息

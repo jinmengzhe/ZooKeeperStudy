@@ -33,13 +33,26 @@ import org.apache.zookeeper.Watcher.Event.KeeperState;
 /**
  * This class manages watches. It allows watches to be associated with a string
  * and removes watchers and their watches in addition to managing triggers.
+ * 
+ * 1 注意这里是server端的WatchManager、跟客户端的不一样、实现也不一样
+ * 2 实际上这里保存的Watcher对象准确的来说是ServerCnxn--参见这个接口、它扩展了Watcher接口
+ *   所以这里触发Watcher是指服务端触发Watcher时的操作、这个process是在ServerCnxn里定义的--就是发个通知给客户端
+ *   
  */
 public class WatchManager {
     private static final Logger LOG = Logger.getLogger(WatchManager.class);
 
+    
+    /**
+     * path->Watcher集合
+     * 
+     * */
     private final HashMap<String, HashSet<Watcher>> watchTable =
         new HashMap<String, HashSet<Watcher>>();
 
+    /**
+     * Watcher->path集合
+     * */
     private final HashMap<Watcher, HashSet<String>> watch2Paths =
         new HashMap<Watcher, HashSet<String>>();
 
@@ -83,10 +96,18 @@ public class WatchManager {
         }
     }
 
+    /**
+     * 触发server端的Watcher
+     * 
+     * */
     public Set<Watcher> triggerWatch(String path, EventType type) {
         return triggerWatch(path, type, null);
     }
 
+    /**
+     * @supress 排除在外的 不触发
+     * 
+     * */
     public Set<Watcher> triggerWatch(String path, EventType type, Set<Watcher> supress) {
         WatchedEvent e = new WatchedEvent(type,
                 KeeperState.SyncConnected, path);
@@ -141,9 +162,13 @@ public class WatchManager {
      * @param byPath iff true output watches by paths, otw output
      * watches by connection
      * @return string representation of watches
+     * 
+     * 从这也可以看出 这里Watcher实际上是一个ServerCnxn的对象
+     * 
      */
     public synchronized void dumpWatches(PrintWriter pwriter, boolean byPath) {
         if (byPath) {
+        	// 按path输出
             for (Entry<String, HashSet<Watcher>> e : watchTable.entrySet()) {
                 pwriter.println(e.getKey());
                 for (Watcher w : e.getValue()) {
@@ -153,6 +178,7 @@ public class WatchManager {
                 }
             }
         } else {
+        	// 按session输出
             for (Entry<Watcher, HashSet<String>> e : watch2Paths.entrySet()) {
                 pwriter.print("0x");
                 pwriter.println(Long.toHexString(((ServerCnxn)e.getKey()).getSessionId()));

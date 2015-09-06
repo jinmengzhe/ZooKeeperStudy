@@ -32,6 +32,11 @@ import org.apache.zookeeper.proto.ReplyHeader;
 /**
  * Interface to a Server connection - represents a connection from a client
  * to the server.
+ * 
+ * 1 Server端保存的连接上下文接口--来自客户端到本server的连接---实现参见NIOServerCnxn
+ * 2 注意它扩展了Watcher接口 process()方法用于处理在遇到监听时间时 Server端作何操作--看实现(NIOServerCnxn是具体的实现类)可知就是发送一个通知命令给客户端
+ *   要注意的是这里的process和客户端的process是不一样的
+ *   
  */
 public interface ServerCnxn extends Watcher {
     // This is just an arbitrary object to represent requests issued by

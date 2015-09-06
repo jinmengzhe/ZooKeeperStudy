@@ -34,6 +34,8 @@ import org.apache.zookeeper.Watcher.Event.KeeperState;
  * 					1 Event接口  定义了事件的状态(KeeperState)和类型(EventType)
  * 					2 处理事件的抽象方法process(WatchedEvent event);--客户端实现Watcher接口时实现该方法来处理回调
  * 
+ * 注意这里没有定义path watcher表示事件类型及如何处理
+ * 
  * 参见下面的详细注释：
  * 
  * */

@@ -22,6 +22,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 
+/**
+ * 字节缓冲区封装
+ * 略
+ * */
 public class ByteBufferInputStream extends InputStream {
     ByteBuffer bb;
 

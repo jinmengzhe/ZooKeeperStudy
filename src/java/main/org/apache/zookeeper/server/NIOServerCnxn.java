@@ -68,12 +68,21 @@ import org.apache.zookeeper.server.auth.ProviderRegistry;
 /**
  * This class handles communication with clients using NIO. There is one per
  * client, but only one thread doing the communication.
+ * 
+ * 一个NIOServerCnxn代表客户端与Server的一个连接上下文
+ * 
  */
 public class NIOServerCnxn implements Watcher, ServerCnxn {
     private static final Logger LOG = Logger.getLogger(NIOServerCnxn.class);
 
     private ConnectionBean jmxConnectionBean;
 
+    
+    /**
+     * Factory: 建立tcp server、listen接入来自客户端的连接
+     * 一个Factory代表一个建立监听的server、以及从这里accept的很多个连接NIOServerCnxn
+     * 
+     * */
     static public class Factory extends Thread {
         static {
             Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
@@ -93,25 +102,58 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             }
         }
 
+        /**
+         * 所在的ZooKeeperServer引用
+         * 
+         * */
         ZooKeeperServer zks;
 
+        /**
+         * 建立server时accept的ServerSocketChannel
+         * 
+         * */
         final ServerSocketChannel ss;
 
+        /**
+         * 管理epoll的Selector
+         * 
+         * */
         final Selector selector = Selector.open();
 
         /**
          * We use this buffer to do efficient socket I/O. Since there is a single
          * sender thread per NIOServerCnxn instance, we can use a member variable to
          * only allocate it once.
+         * 
+         * 写IO时的字节缓冲区
+         * 有很多个NIOServerCnxn 为什么只有一个directBuffer？？？TODO
+         * 
         */
         final ByteBuffer directBuffer = ByteBuffer.allocateDirect(64 * 1024);
 
+        /**
+         * 保存所有accept的连接
+         * 
+         * */
         final HashSet<NIOServerCnxn> cnxns = new HashSet<NIOServerCnxn>();
+        /**
+         * 保存来自不同客户端机器->对应连接的映射
+         * 
+         * */
         final HashMap<InetAddress, Set<NIOServerCnxn>> ipMap =
             new HashMap<InetAddress, Set<NIOServerCnxn>>( );
 
+        /**
+         * 未处理请求队列的长度 防止客户端发送请求过快
+         * 默认是1000
+         * 
+         * */
         int outstandingLimit = 1;
 
+        /**
+         * 限制单机建立的连接个数
+         * 
+         * */
         int maxClientCnxns = 10;
 
         /**
@@ -133,6 +175,9 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
          * @param port - the port to listen on for connections.
          * @param maxcc - the number of concurrent connections allowed from a single client.
          * @throws IOException
+         * 
+         * 在addr建立listen、限制每个机器来的连接数为maxcc
+         * 
          */
         public Factory(InetSocketAddress addr, int maxcc) throws IOException {
             super("NIOServerCxn.Factory:" + addr);
@@ -154,6 +199,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             }
         }
 
+        /**
+         * 启动accept、启动zks(参见zks)
+         * 
+         * */
         public void startup(ZooKeeperServer zks) throws IOException,
                 InterruptedException {
             start();
@@ -188,6 +237,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             return maxClientCnxns;
         }
 
+        /**
+         * 新增一个NIOServerCnxn
+         * 优化到了极致啊啊啊啊
+         * */
         private void addCnxn(NIOServerCnxn cnxn) {
             synchronized (cnxns) {
                 cnxns.add(cnxn);
@@ -227,6 +280,12 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         }
 
         public void run() {
+        	/**
+        	 * 如果没有关闭的话 就一直在ss上:
+        	 * 1 accept、接受建立连接的请求
+        	 * 2 处理读写请求
+        	 * 
+        	 * */
             while (!ss.socket().isClosed()) {
                 try {
                     selector.select(1000);
@@ -238,11 +297,13 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                             selected);
                     Collections.shuffle(selectedList);
                     for (SelectionKey k : selectedList) {
+                    	// 1 建立连接的请求
                         if ((k.readyOps() & SelectionKey.OP_ACCEPT) != 0) {
                             SocketChannel sc = ((ServerSocketChannel) k
                                     .channel()).accept();
                             InetAddress ia = sc.socket().getInetAddress();
                             int cnxncount = getClientCnxnCount(ia);
+                            // 判断是否超出单机限制最大连接数
                             if (maxClientCnxns > 0 && cnxncount >= maxClientCnxns){
                                 LOG.warn("Too many connections from " + ia
                                          + " - max is " + maxClientCnxns );
@@ -254,13 +315,17 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                                 SelectionKey sk = sc.register(selector,
                                         SelectionKey.OP_READ);
                                 NIOServerCnxn cnxn = createConnection(sc, sk);
+                                // 注意这个用法 将NIOServerCnxn绑定在SelectionKey上、在后面有用
+                                // 可以根据SelectionKey取出NIOServerCnxn
                                 sk.attach(cnxn);
                                 addCnxn(cnxn);
                             }
                         } else if ((k.readyOps() & (SelectionKey.OP_READ | SelectionKey.OP_WRITE)) != 0) {
+                        	// 2 读写请求 在doIO里处理
                             NIOServerCnxn c = (NIOServerCnxn) k.attachment();
                             c.doIO(k);
                         } else {
+                        	// 其他请求不做处理
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug("Unexpected ops in select "
                                           + k.readyOps());
@@ -274,6 +339,7 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                     LOG.warn("Ignoring exception", e);
                 }
             }
+            // 如果ss已关闭、退出accept
             clear();
             LOG.info("NIOServerCnxn factory exited run method");
         }
@@ -284,6 +350,9 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
          * You must first close ss (the serversocketchannel) if you wish
          * to block any new connections from being established.
          *
+         * 清理所有连接---主动关闭
+         * 注意在这之前需要已经将ss关闭 不在接受新建立的连接和请求
+         * 
          */
         @SuppressWarnings("unchecked")
         synchronized public void clear() {
@@ -325,6 +394,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             }
         }
 
+        /**
+         * 注意这两个用在哪 一个wakeup一个没有
+         * TODO
+         * */
         synchronized void closeSession(long sessionId) {
             selector.wakeup();
             closeSessionWithoutWakeup(sessionId);
@@ -350,37 +423,89 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         }
     }
 
+    
+    
     /**
      * The buffer will cause the connection to be close when we do a send.
+     * 
+     * 一个特殊的ByteBuffer 当将closeConn扔入发送队列时 在doIO时会检测 一旦检测到 触发该连接关闭
+     * 
      */
     static final ByteBuffer closeConn = ByteBuffer.allocate(0);
 
+    /**
+     * 一个NIOServerCnxn持有建立这个NIOServerCnxn的Factory
+     * 
+     * */
     final Factory factory;
 
     /** The ZooKeeperServer for this connection. May be null if the server
      * is not currently serving requests (for example if the server is not
      * an active quorum participant.
+     * 
+     * 该NIOServerCnxn连接的ZooKeeperServer
+     *
      */
     private final ZooKeeperServer zk;
 
+    /**
+     * 该NIOServerCnxn的SocketChannel 注意这个与Factory里面的ServerSocketChannel的区别
+     * Factory是一个建立Server accept的server端、这里是连接建立后的连接端
+     * 
+     * */
     private SocketChannel sock;
 
+    /**
+     * 与sock绑定的SelectionKey
+     * 
+     * */
     private SelectionKey sk;
 
+    /**
+     * 该连接是否初始化 TODO
+     * 
+     * */
     boolean initialized;
 
+    /**
+     * 包长度 为4个字节
+     * 
+     * */
     ByteBuffer lenBuffer = ByteBuffer.allocate(4);
 
+    /**
+     * 包缓冲区--存储一个请求的字节数据 请求对象会从该字节流中反序列化出来
+     * 
+     * 大小为从lenBuffer读出的长度
+     * 这一块实现跟ClientCnxn的类似 一般都是这么做
+     * 这里只是初始化为跟lenBuffer一样 当读到len以后 会根据len的大小重新分配空间赋给incomingBuffer
+     * */
     ByteBuffer incomingBuffer = lenBuffer;
 
+    /**
+     * 等待发送的ByteBuffer队列 用于异步发送
+     * 
+     * */
     LinkedBlockingQueue<ByteBuffer> outgoingBuffers = new LinkedBlockingQueue<ByteBuffer>();
 
+    /**
+     * 服务端维护的一个sessionTimeOut
+     * TODO
+     * */
     int sessionTimeout;
 
+    /**
+     * 服务端维护的该连接的验证信息
+     * 
+     * */
     ArrayList<Id> authInfo = new ArrayList<Id>();
 
     /* Send close connection packet to the client, doIO will eventually
      * close the underlying machinery (like socket, selectorkey, etc...)
+     * 
+     * 发送关闭连接的包给客户端
+     * doIO最终会关闭连接
+     * 
      */
     public void sendCloseSession() {
         sendBuffer(closeConn);
@@ -390,6 +515,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
      * send buffer without using the asynchronous
      * calls to selector and then close the socket
      * @param bb
+     * 
+     * 同步发送ByteBuffer 直接写sock
+     * 区别于使用outgoingBuffers来做异步发送
+     * 
      */
     void sendBufferSync(ByteBuffer bb) {
        try {
@@ -402,6 +531,7 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                if (sock != null) {
                    sock.write(bb);
                }
+               // 当发送完packet后更新统计信息
                packetSent();
            } 
        } catch (IOException ie) {
@@ -409,8 +539,20 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
        }
     }
     
+    /**
+     * 异步发送ByteBuffer--放入异步发送队列outgoingBuffers
+     * 
+     * */
     void sendBuffer(ByteBuffer bb) {
         try {
+        	/**
+        	 * 如果还没有interest WRITE 那么说明待发送队列为空
+        	 * 此时可以直接同步发送即可
+        	 * 一个优化 可以去掉
+        	 * 
+        	 * 如果是closeConn 直接放入发送队列 --后续在doIO时会检测closeConn --如果检测到closeConn、那么doIO的死循环退出(表示关闭了连接)
+        	 * 
+        	 * */
             if (bb != closeConn) {
                 // We check if write interest here because if it is NOT set,
                 // nothing is queued, so we can try to send the buffer right
@@ -429,6 +571,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                 }
             }
 
+            /**
+             * 将要发送的ByteBuffer放入发送队列
+             * 
+             * */
             synchronized(this.factory){
                 sk.selector().wakeup();
                 if (LOG.isTraceEnabled()) {
@@ -466,8 +612,19 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         }
     }
 
+    /**
+     * payload:数据包的len后面实际的正文内容
+     * 该函数之前incomingBuffer的大小已经根据len确定
+     * 该函数确保从sock里将需要的len数据全部读出来 如果不能做到 说明数据出错
+     * 
+     * */
     /** Read the request payload (everything followng the length prefix) */
     private void readPayload() throws IOException, InterruptedException {
+    	/**
+    	 * 如果还没有读完整、继续读
+    	 * readPayload()应该在一个IO死循环里 直到读完整的数据包
+    	 * 
+    	 * */
         if (incomingBuffer.remaining() != 0) { // have we read length bytes?
             int rc = sock.read(incomingBuffer); // sock is non-blocking, so ok
             if (rc < 0) {
@@ -478,19 +635,34 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             }
         }
 
+        /**
+         * 已经读到完整的该数据包
+         * 注意有哪些步骤
+         * 
+         * */
         if (incomingBuffer.remaining() == 0) { // have we read length bytes?
+        	// 1 更新统计信息
             packetReceived();
+            // 2 包数据流flip到最开始
             incomingBuffer.flip();
+            // 3 如果连接还没有初始化、那么需要初始化该连接--初始化即读客户端来的ConnectRequest
+            // 如果已经初始化(连接已建立) 那么读正常的请求
             if (!initialized) {
                 readConnectRequest();
             } else {
                 readRequest();
             }
+            // 重置lenBuffer和incomingBuffer 等待下一个数据包
             lenBuffer.clear();
             incomingBuffer = lenBuffer;
         }
     }
 
+    /**
+     * 所有连接socket上的读写IO事件在此处理
+     * 
+     * 
+     * */
     void doIO(SelectionKey k) throws InterruptedException {
         try {
             if (sock == null) {
@@ -499,6 +671,11 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
 
                 return;
             }
+            /**
+             * 当有读IO事件时:
+             * 
+             * 
+             * */
             if (k.isReadable()) {
                 int rc = sock.read(incomingBuffer);
                 if (rc < 0) {
@@ -527,6 +704,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                     }
                 }
             }
+            /**
+             * 当有写IO事件时:
+             * 
+             * */
             if (k.isWritable()) {
                 // ZooLog.logTraceMessage(LOG,
                 // ZooLog.CLIENT_DATA_PACKET_TRACE_MASK
@@ -646,6 +827,11 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         }
     }
 
+    /**
+     * 读连接以外的其他请求：
+     * TODO 参见ZooKeeperServer
+     * 
+     * */
     private void readRequest() throws IOException {
         // We have the request, now process and setup for next
         InputStream bais = new ByteBufferInputStream(incomingBuffer);
@@ -726,7 +912,12 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         }
     }
 
+    /**
+     * 读客户端连接的请求:
+     * 
+     * */
     private void readConnectRequest() throws IOException, InterruptedException {
+    	// 将读到的数据incomingBuffer反序列化为ConnectRequest
         BinaryInputArchive bia = BinaryInputArchive
                 .getArchive(new ByteBufferInputStream(incomingBuffer));
         ConnectRequest connReq = new ConnectRequest();
@@ -737,9 +928,11 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                     + " client's lastZxid is 0x"
                     + Long.toHexString(connReq.getLastZxidSeen()));
         }
+        // ZooKeeperServer须就绪
         if (zk == null) {
             throw new IOException("ZooKeeperServer not running");
         }
+        // 注意这里 如果是重连 可能需要连一个比较新的ZooKeeperServer
         if (connReq.getLastZxidSeen() > zk.getZKDatabase().getDataTreeLastProcessedZxid()) {
             String msg = "Refusing session request for client "
                 + sock.socket().getRemoteSocketAddress()
@@ -752,6 +945,7 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             LOG.info(msg);
             throw new CloseRequestException(msg);
         }
+        // 
         sessionTimeout = connReq.getTimeOut();
         byte passwd[] = connReq.getPasswd();
         int minSessionTimeout = zk.getMinSessionTimeout();
@@ -764,6 +958,8 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         }
         // We don't want to receive any packets until we are sure that the
         // session is setup
+        // TODO 在ZooKeeperServer里面建立session或者重新建立session
+        // 
         disableRecv();
         if (connReq.getSessionId() != 0) {
             long clientSessionId = connReq.getSessionId();
@@ -795,6 +991,15 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         }
     }
 
+    
+    
+    /**
+     * 四字命令也要在这里处理 擦
+     * 1 为什么是四字命令 这个是有讲究的 这里处理和正常的请求包是一起的 4个字节32位与包的len4字节保持一致
+     * 2 
+     * 
+     * 
+     * */
     /*
      * See <a href="{@docRoot}/../../../docs/zookeeperAdmin.html#sc_zkCommands">
      * Zk Admin</a>. this link is for all the commands.
@@ -919,6 +1124,9 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
      * 
      * @param pwriter
      *            the pwriter for a command socket
+     *            
+     *  清理和关闭PrintWriter --四字命令通过PrintWriter直接来做
+     *  
      */
     private void cleanupWriterSocket(PrintWriter pwriter) {
         try {
@@ -942,6 +1150,11 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
      * responsible for chunking up the response to a client. Rather
      * than cons'ing up a response fully in memory, which may be large
      * for some commands, this class chunks up the result.
+     * 
+     * 扩展了Writer类、以配合我们需要的一些特性：
+     * 1 默认情况下只有当字节数累积到 > 2048才会去实际写
+     * 2 flush()时强制写、不管字节数多少。
+     * 
      */
     private class SendBufferWriter extends Writer {
         private StringBuffer sb = new StringBuffer();
@@ -949,6 +1162,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         /**
          * Check if we are ready to send another chunk.
          * @param force force sending, even if not a full chunk
+         * 
+         * 1 强制flush时写
+         * 2 字节数>2048时写
+         * 
          */
         private void checkFlush(boolean force) {
             if ((force && sb.length() > 0) || sb.length() > 2048) {
@@ -958,6 +1175,9 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             }
         }
 
+        /**
+         * 关闭前做强制flush
+         * */
         @Override
         public void close() throws IOException {
             if (sb == null) return;
@@ -965,11 +1185,20 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             sb = null; // clear out the ref to ensure no reuse
         }
 
+        /**
+         * 强制flush
+         * 
+         * */
         @Override
         public void flush() throws IOException {
             checkFlush(true);
         }
 
+        /**
+         * 并不会立刻写、实际上放在sb里
+         * 当到达2048才会实际写
+         * 
+         * */
         @Override
         public void write(char[] cbuf, int off, int len) throws IOException {
             sb.append(cbuf, off, len);
@@ -985,6 +1214,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
      * letter commands are run via a thread. Each class
      * maps to a correspoding 4 letter command. CommandThread
      * is the abstract class from which all the others inherit.
+     * 
+     * 1 每个四字命令通过一个线程来处理、而且就运行一次、下一次再起这样一个线程---代价是否太大？？？？T
+     * 2 CommandThread是所有四字命令线程的抽象类
+     * 
      */
     private abstract class CommandThread extends Thread {
         PrintWriter pw;
@@ -993,6 +1226,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             this.pw = pw;
         }
         
+        /**
+         * 该线程就运行一次、处理一个四字命令、运行完了之后就在finally里面关闭了
+         * 
+         * */
         public void run() {
             try {
                 commandRun();
@@ -1224,7 +1461,16 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
     }
     
     
-    /** Return if four letter word found and responded to, otw false **/
+    /** Return if four letter word found and responded to, otw false 
+     * 检查请求是否是四字命令:
+     * @len 已经从k里读出来的四字节长度 有可能是请求包的len或者四字命令
+     * @k   SelectionKey 在这里作用不大 --如果发现是四字命令 需要从epoll里取消关注即可
+     * 
+     * 根据len值判断:
+     * 1 不是四字命令：直接返回false
+     * 2 是四字命令：启动对应的四字命令线程处理并响应、完成后返回true
+     * 
+     * **/
     private boolean checkFourLetterWord(final SelectionKey k, final int len)
     throws IOException
     {
@@ -1319,6 +1565,11 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
      * @param k selection key
      * @return true if length read, otw false (wasn't really the length)
      * @throws IOException if buffer size exceeds maxBuffer size
+     * 
+     * 从lenBuffer读请求包长度(也许是四字命令)--所以在这里处理了两种逻辑:
+     * 1 如果是四字命令：处理四字命令、返回false
+     * 2 如果是请求包长度：读到了长度、分配incomingBuffer、返回true
+     * 
      */
     private boolean readLength(SelectionKey k) throws IOException {
         // Read the length, now get the buffer
@@ -1338,6 +1589,7 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
 
     /**
      * The number of requests that have been submitted but not yet responded to.
+     * 已经提交但是还没有响应的请求 TODO 提交到哪？
      */
     int outstandingRequests;
 
@@ -1353,11 +1605,22 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
     /**
      * This is the id that uniquely identifies the session of a client. Once
      * this session is no longer active, the ephemeral nodes will go away.
+     * 
+     * 唯一标示一个session的id
      */
     long sessionId;
 
+    // 没用到
     static long nextSessionId = 1;
 
+    /**
+     * NIOServerCnxn对象:
+     * @zk   绑定的ZooKeeperServer
+     * @sock 绑定的SocketChannel
+     * @sk   绑定的SelectionKey
+     * @factory 绑定的Factory
+     * 
+     * */
     public NIOServerCnxn(ZooKeeperServer zk, SocketChannel sock,
             SelectionKey sk, Factory factory) throws IOException {
         this.zk = zk;
@@ -1381,9 +1644,13 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
      * Close the cnxn and remove it from the factory cnxns list.
      * 
      * This function returns immediately if the cnxn is not on the cnxns list.
+     * 
+     * 关闭NIOServerCnxn对象:
+     * 
      */
     public void close() {
         synchronized(factory.cnxns){
+        	// 从factory移除
             // if this is not in cnxns then it's already closed
             if (!factory.cnxns.remove(this)) {
                 return;
@@ -1395,6 +1662,7 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                 s.remove(this);
             }
 
+            // 从JMX移除
             // unregister from JMX
             try {
                 if(jmxConnectionBean != null){
@@ -1405,10 +1673,12 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             }
             jmxConnectionBean = null;
     
+            // 从ZooKeeperServer移除
             if (zk != null) {
                 zk.removeCnxn(this);
             }
     
+            // 关闭socket
             closeSock();
     
             if (sk != null) {
@@ -1426,6 +1696,9 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
 
     /**
      * Close resources associated with the sock of this cnxn. 
+     * 
+     * 关闭socket
+     * 
      */
     private void closeSock() {
         if (sock == null) {
@@ -1480,6 +1753,7 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         sock = null;
     }
     
+    // 四字节:len 代表数据包的长度(header + record)
     private final static byte fourBytes[] = new byte[4];
 
     /*
@@ -1487,6 +1761,12 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
      *
      * @see org.apache.zookeeper.server.ServerCnxnIface#sendResponse(org.apache.zookeeper.proto.ReplyHeader,
      *      org.apache.jute.Record, java.lang.String)
+     *      
+     *      发送内容:len + header + record
+     *      @len     代表跟在后面的header+record的长度
+     *      @header  “header” —> 消息头
+     *      @record  “tag” —>消息体
+     *      
      */
     synchronized public void sendResponse(ReplyHeader h, Record r, String tag) {
         try {
@@ -1506,7 +1786,9 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             byte b[] = baos.toByteArray();
             ByteBuffer bb = ByteBuffer.wrap(b);
             bb.putInt(b.length - 4).rewind();
+            // 异步发送 只是放入响应队列
             sendBuffer(bb);
+            // 维护一些状态和限流
             if (h.getXid() > 0) {
                 synchronized(this){
                     outstandingRequests--;
@@ -1529,6 +1811,9 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
      * (non-Javadoc)
      *
      * @see org.apache.zookeeper.server.ServerCnxnIface#process(org.apache.zookeeper.proto.WatcherEvent)
+     * 
+     * server端的处理监听事件、其实只是给客户端发一个通知即可。
+     * 
      */
     synchronized public void process(WatchedEvent event) {
         ReplyHeader h = new ReplyHeader(-1, -1L, 0);
@@ -1545,7 +1830,16 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         sendResponse(h, e, "notification");
     }
 
+    /**
+     * 当session建立后:
+     * valid：session是否有效
+     * 
+     * */
     public void finishSessionInit(boolean valid) {
+    	/**
+    	 * 0 注册JMX
+    	 * 
+    	 * */
         // register with JMX
         try {
             jmxConnectionBean = new ConnectionBean(this, zk);
@@ -1555,6 +1849,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             jmxConnectionBean = null;
         }
 
+        /**
+         * 1 给客户端响应
+         * 
+         * */
         try {
             ConnectResponse rsp = new ConnectResponse(0, valid ? sessionTimeout
                     : 0, valid ? sessionId : 0, // send 0 if session is no
@@ -1569,6 +1867,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             bb.putInt(bb.remaining() - 4).rewind();
             sendBuffer(bb);
 
+            /**
+             * 2 根据valid判断是否需要sendCloseSession()--触发后续关闭该连接
+             * 
+             * */
             if (!valid) {
                 LOG.info("Invalid session 0x"
                         + Long.toHexString(sessionId)
@@ -1584,6 +1886,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                         + sock.socket().getRemoteSocketAddress());
             }
 
+            /**
+             * 3 开启接受数据包
+             * 
+             * */
             // Now that the session is ready we can start receiving packets
             synchronized (this.factory) {
                 sk.selector().wakeup();
@@ -1619,6 +1925,12 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         return (InetSocketAddress) sock.socket().getRemoteSocketAddress();
     }
 
+    
+    
+    /**
+     * 该连接或者说是session、即一个NIOServerCnxn的状态/统计信息
+     * 
+     * */
     class CnxnStats implements ServerCnxn.Stats {
         private final Date established = new Date();
 
@@ -1811,6 +2123,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         }
     }
 
+    /**
+     * 一个NIOServerCnxn持有一个它自己的统计信息
+     * 
+     * */
     private final CnxnStats stats = new CnxnStats();
     public Stats getStats() {
         return stats;

@@ -33,6 +33,8 @@ import org.apache.zookeeper.server.NIOServerCnxn.CnxnStats;
 
 /**
  * Implementation of connection MBean interface.
+ * 连接Bean: 引用ServerCnxn和ZooKeeperServer 信息都来自这两个主要类
+ * 
  */
 public class ConnectionBean implements ConnectionMXBean, ZKMBeanInfo {
     private static final Logger LOG = Logger.getLogger(ConnectionBean.class);
