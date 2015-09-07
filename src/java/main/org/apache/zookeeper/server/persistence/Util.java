@@ -240,6 +240,14 @@ public class Util {
      * @return the new file size. It can be the same as currentSize if no
      * padding was done.
      * @throws IOException
+     * 
+     * TODO 不太清楚  为什么f.getChannel().position()跟@currentSize大小不一样？？？
+     * 前者是实际事务日志写到了哪个位置 后者是文件已经填充的大小--后面的一段都是空着的
+     * 
+     * @f            文件
+     * @currentSize  应用程序跟踪的当前文件大小
+     * @preAllocSize pad多少字节 写死的64MB
+     * 
      */
     public static long padLogFile(FileOutputStream f,long currentSize,
             long preAllocSize) throws IOException{
@@ -258,6 +266,9 @@ public class Util {
      * @return null if the entry is corrupted or EOF has been reached; a buffer
      * (possible empty) containing serialized transaction record.
      * @throws IOException
+     * 
+     * 从ia中读出“txtEntry”--“hdr” + “txn” + “txnEntryCRC”
+     * 
      */
     public static byte[] readTxnBytes(InputArchive ia) throws IOException {
         try{
@@ -266,6 +277,7 @@ public class Util {
             // empty transaction
             if (bytes.length == 0)
                 return bytes;
+            // 验证结束符0x42--'B'
             if (ia.readByte("EOF") != 'B') {
                 LOG.error("Last transaction was partial.");
                 return null;
@@ -283,6 +295,9 @@ public class Util {
      * @param txn transaction data
      * @return serialized transaction record
      * @throws IOException
+     * 
+     * 对“hdr”和“txn”部分做序列化
+     * 
      */
     public static byte[] marshallTxnEntry(TxnHeader hdr, Record txn)
             throws IOException {
@@ -302,6 +317,11 @@ public class Util {
      * @param oa output archive
      * @param bytes serialized trasnaction record
      * @throws IOException
+     * 
+     * 写事务:
+     * txnEntry->完整的事务序列化后的字节数组: 包括“hdr” + “txn” + “txnEntryCRC” 三段
+     * "EOR"—>0x42(B) 每条事务日志后面写死的结束标志
+     * 
      */
     public static void writeTxnBytes(OutputArchive oa, byte[] bytes)
             throws IOException {

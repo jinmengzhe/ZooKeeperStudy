@@ -90,6 +90,8 @@ import org.apache.zookeeper.txn.TxnHeader;
  * Record:
  *     See Jute definition file for details on the various record types
  * 
+ * 0x42:
+ * 	    写死的、每条记录后面都以0x42->EOR结束
  * 
  * 4 文件结束0 padded
  * ZeroPad:
@@ -99,14 +101,18 @@ import org.apache.zookeeper.txn.TxnHeader;
 public class FileTxnLog implements TxnLog {
     private static final Logger LOG;
 
-    static long preAllocSize =  65536 * 1024;
+    // 2^26字节 = 2^6MB = 64MB
+    static long preAllocSize =  65536 * 1024; 
 
+    // FileHeader里面的魔幻数
     public final static int TXNLOG_MAGIC =
         ByteBuffer.wrap("ZKLG".getBytes()).getInt();
 
+    // FileHeader里面的版本号
     public final static int VERSION = 2;
 
     /** Maximum time we allow for elapsed fsync before WARNing */
+    // 多久做一次fsync
     private final static long fsyncWarningThresholdMS;
 
     static {
@@ -123,23 +129,40 @@ public class FileTxnLog implements TxnLog {
         fsyncWarningThresholdMS = Long.getLong("fsync.warningthresholdms", 1000);
     }
 
+    // 最后的zxid
     long lastZxidSeen;
+    // 注意下面三个volatile变量
+    // 带缓冲的文件流--与fos对应
     volatile BufferedOutputStream logStream = null;
+    // jute定义的输出机构--与logSream对应
     volatile OutputArchive oa;
+    // 正在写的文件输出流、与下面的变量File logFileWrite对应
     volatile FileOutputStream fos = null;
 
+    
+    // 存放目录
     File logDir;
+    // 是否强制刷新 TODO
     private final boolean forceSync = !System.getProperty("zookeeper.forceSync", "yes").equals("no");;
+    // FileHeader里面的dbid 没啥用 一直为0
     long dbId;
+    // 尚未flush的log文件流
     private LinkedList<FileOutputStream> streamsToFlush =
         new LinkedList<FileOutputStream>();
+    // 跟踪当前文件大小--终于明白了pad是干什么的 
+    // 去zk目录下看日志大小会发现所有日志都是65MB 因为一开始就对日志进行了pad 分配了空间--没有写的部分是空的
+    // 这样提高写的效率??? 
     long currentSize;
+    // 正在写的log文件
     File logFileWrite = null;
 
     /**
      * constructor for FileTxnLog. Take the directory
      * where the txnlogs are stored
      * @param logDir the directory where the txnlogs are stored
+     * 
+     * 只需要目录名就行
+     * 
      */
     public FileTxnLog(File logDir) {
         this.logDir = logDir;
@@ -157,6 +180,9 @@ public class FileTxnLog implements TxnLog {
     /**
      * creates a checksum alogrithm to be used
      * @return the checksum used for this txnlog
+     * 
+     * 使用Adler32()作为校验算法
+     * 
      */
     protected Checksum makeChecksumAlgorithm(){
         return new Adler32();
@@ -166,6 +192,9 @@ public class FileTxnLog implements TxnLog {
     /**
      * rollover the current log file to a new one.
      * @throws IOException
+     * 
+     * 切换到下一个要写的日志文件
+     * 
      */
     public synchronized void rollLog() throws IOException {
         if (logStream != null) {
@@ -178,6 +207,8 @@ public class FileTxnLog implements TxnLog {
     /**
      * close all the open file handles
      * @throws IOException
+     * 关闭所有打开的log文件
+     * 
      */
     public synchronized void close() throws IOException {
         if (logStream != null) {
@@ -193,16 +224,21 @@ public class FileTxnLog implements TxnLog {
      * @param hdr the header of the transaction
      * @param txn the transaction part of the entry
      * returns true iff something appended, otw false 
+     * 
+     * 写一条事务日志 返回写成功or失败
+     * 
      */
     public synchronized boolean append(TxnHeader hdr, Record txn)
         throws IOException
     {
         if (hdr != null) {
+        	// 可能会重复写过去的zxid
             if (hdr.getZxid() <= lastZxidSeen) {
                 LOG.warn("Current zxid " + hdr.getZxid()
                         + " is <= " + lastZxidSeen + " for "
                         + hdr.getType());
             }
+            // 刚开始或者做了rollLog 开启一个新的日志文件
             if (logStream==null) {
                if(LOG.isInfoEnabled()){
                     LOG.info("Creating new log file: log." +  
@@ -214,6 +250,7 @@ public class FileTxnLog implements TxnLog {
                fos = new FileOutputStream(logFileWrite);
                logStream=new BufferedOutputStream(fos);
                oa = BinaryOutputArchive.getArchive(logStream);
+               // 写FileHeader
                FileHeader fhdr = new FileHeader(TXNLOG_MAGIC,VERSION, dbId);
                fhdr.serialize(oa, "fileheader");
                // Make sure that the magic number is written before padding.
@@ -221,12 +258,17 @@ public class FileTxnLog implements TxnLog {
                currentSize = fos.getChannel().position();
                streamsToFlush.add(fos);
             }
+            // 下面开始写入一条新的事务记录
+            
+            // TODO  提高写事务日志的效率 将大小pad到 +64MB
             padFile(fos);
+            // “hdr” + “txn”
             byte[] buf = Util.marshallTxnEntry(hdr, txn);
             if (buf == null || buf.length == 0) {
                 throw new IOException("Faulty serialization for header " +
                         "and txn");
             }
+            // txnEntryCRC
             Checksum crc = makeChecksumAlgorithm();
             crc.update(buf, 0, buf.length);
             oa.writeLong(crc.getValue(), "txnEntryCRC");
@@ -241,6 +283,9 @@ public class FileTxnLog implements TxnLog {
      * pad the current file to increase its size
      * @param out the outputstream to be padded
      * @throws IOException
+     * 
+     * 为什么要pad 已经解释过了
+     * 
      */
     private void padFile(FileOutputStream out) throws IOException {
         currentSize = Util.padLogFile(out, currentSize, preAllocSize);
@@ -253,6 +298,9 @@ public class FileTxnLog implements TxnLog {
      * @param logDirList array of files
      * @param snapshotZxid return files at, or before this zxid
      * @return
+     * 
+     * 获取snapshotZxid之前(或者包括snapshotZxid)的所有log.xxx文件
+     * 
      */
     public static File[] getLogFiles(File[] logDirList,long snapshotZxid) {
         List<File> files = Util.sortDataDir(logDirList, "log", true);
@@ -285,12 +333,17 @@ public class FileTxnLog implements TxnLog {
     /**
      * get the last zxid that was logged in the transaction logs
      * @return the last zxid logged in the transaction logs
+     * 
+     * 找到log.xxx里面最新的一个zxid
+     * 
      */
     public long getLastLoggedZxid() {
+    	// 首先找到最后的一个log.xxx文件
         File[] files = getLogFiles(logDir.listFiles(), 0);
         long maxLog=files.length>0?
                 Util.getZxidFromName(files[files.length-1].getName(),"log"):-1;
 
+        // 然后遍历该文件 找到最后一个zxid记录
         // if a log file is more recent we must scan it to find
         // the highest zxid
         long zxid = maxLog;
@@ -312,11 +365,16 @@ public class FileTxnLog implements TxnLog {
     /**
      * commit the logs. make sure that evertyhing hits the
      * disk
+     * 将事务日志提交到磁盘
+     * make sure!!!  确保所有带缓冲的事务内容都提交到磁盘
+     * 
      */
     public synchronized void commit() throws IOException {
+    	// flush当前
         if (logStream != null) {
             logStream.flush();
         }
+        // flush缓冲的
         for (FileOutputStream log : streamsToFlush) {
             log.flush();
             if (forceSync) {
@@ -335,6 +393,7 @@ public class FileTxnLog implements TxnLog {
                 }
             }
         }
+        // 清空缓存的stream
         while (streamsToFlush.size() > 1) {
             streamsToFlush.removeFirst().close();
         }
