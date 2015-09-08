@@ -54,6 +54,9 @@ import org.apache.zookeeper.txn.TxnHeader;
  * server states that includes the sessions, datatree and the
  * committed logs. It is booted up  after reading the logs
  * and snapshots from the disk.
+ *
+ * zookeeper维护的一个内存数据库
+ *  
  */
 public class ZKDatabase {
     

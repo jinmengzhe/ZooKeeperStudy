@@ -35,6 +35,7 @@ import org.apache.zookeeper.data.StatPersisted;
  * array of ACLs, a stat object, and a set of its children's paths.
  * 
  * ZK数据模型一个节点的定义
+ * 注意acl用一个Long来表示 在DataTree里保存了这种映射
  * 
  */
 public class DataNode implements Record {

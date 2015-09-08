@@ -267,7 +267,7 @@ public class Util {
      * (possible empty) containing serialized transaction record.
      * @throws IOException
      * 
-     * 从ia中读出“txtEntry”--“hdr” + “txn” + “txnEntryCRC”
+     * 从ia中读出“txtEntry”--“hdr” + “txn”
      * 
      */
     public static byte[] readTxnBytes(InputArchive ia) throws IOException {
@@ -319,7 +319,7 @@ public class Util {
      * @throws IOException
      * 
      * 写事务:
-     * txnEntry->完整的事务序列化后的字节数组: 包括“hdr” + “txn” + “txnEntryCRC” 三段
+     * txnEntry->完整的事务序列化后的字节数组: 包括“txnEntryCRC” + “hdr” + “txn” +  三段
      * "EOR"—>0x42(B) 每条事务日志后面写死的结束标志
      * 
      */

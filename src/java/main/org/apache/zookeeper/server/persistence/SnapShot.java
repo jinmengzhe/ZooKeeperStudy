@@ -40,6 +40,9 @@ public interface SnapShot {
      * @param sessions the sessions to be deserialized into
      * @return the last zxid that was deserialized from the snapshot
      * @throws IOException
+     * 从最新的snapshot文件中反序列化出dt和sessions
+     * @dt  DataTree
+     * @sessions sessionid->timeout
      */
     long deserialize(DataTree dt, Map<Long, Integer> sessions) 
         throws IOException;
@@ -49,6 +52,9 @@ public interface SnapShot {
      * @param dt the datatree to be serialized
      * @param sessions 
      * @throws IOException
+     * 
+     * 将dt和sessions序列化到文件中
+     * 
      */
     void serialize(DataTree dt, Map<Long, Integer> sessions, 
             File name) 
@@ -58,6 +64,8 @@ public interface SnapShot {
      * find the most recent snapshot file
      * @return the most recent snapshot file
      * @throws IOException
+     * 最新的snapshot.xxx文件
+     * 
      */
     File findMostRecentSnapshot() throws IOException;
     

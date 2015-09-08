@@ -161,7 +161,7 @@ public class FileTxnLog implements TxnLog {
      * where the txnlogs are stored
      * @param logDir the directory where the txnlogs are stored
      * 
-     * 只需要目录名就行
+     * 只需要目录名就行 FileTxnLog代表目录下的所有事务日志文件
      * 
      */
     public FileTxnLog(File logDir) {
@@ -271,6 +271,7 @@ public class FileTxnLog implements TxnLog {
             // txnEntryCRC
             Checksum crc = makeChecksumAlgorithm();
             crc.update(buf, 0, buf.length);
+            // 先写校验、再写内容、最后写结束符:“txnEntryCRC” + "txnEntry"(“hdr” + “txn”) + "EOR"—>0x42(B)
             oa.writeLong(crc.getValue(), "txnEntryCRC");
             Util.writeTxnBytes(oa, buf);
             
@@ -404,6 +405,9 @@ public class FileTxnLog implements TxnLog {
      * @param zxid the zxid to start reading transactions from
      * @return returns an iterator to iterate through the transaction
      * logs
+     * 
+     * 从zxid实现事务日志的迭代--参见FileTxnIterator的实现
+     * 
      */
     public TxnIterator read(long zxid) throws IOException {
         return new FileTxnIterator(logDir, zxid);
@@ -413,15 +417,21 @@ public class FileTxnLog implements TxnLog {
      * truncate the current transaction logs
      * @param zxid the zxid to truncate the logs to
      * @return true if successful false if not
+     * 
+     * 截断后不包括zxid
+     * 
      */
     public boolean truncate(long zxid) throws IOException {
         FileTxnIterator itr = new FileTxnIterator(this.logDir, zxid);
         PositionInputStream input = itr.inputStream;
+        // 要截断的位置--从这截断就不包括zxid这一条
         long pos = input.getPosition();
         // now, truncate at the current position
+        // 从zxid截断--不包括
         RandomAccessFile raf=new RandomAccessFile(itr.logFile,"rw");
         raf.setLength(pos);
         raf.close();
+        // 将后面的事务文件删除
         while(itr.goToNextLog()) {
             if (!itr.logFile.delete()) {
                 LOG.warn("Unable to truncate " + itr.logFile);
@@ -435,6 +445,9 @@ public class FileTxnLog implements TxnLog {
      * @param file the transaction file to read
      * @return header that was read fomr the file
      * @throws IOException
+     * 
+     * 从日志文件读出FileHeader 没用到
+     * 
      */
     private static FileHeader readHeader(File file) throws IOException {
         InputStream is =null;
@@ -456,6 +469,9 @@ public class FileTxnLog implements TxnLog {
     /**
      * the dbid of this transaction database
      * @return the dbid of this database
+     * 
+     * 没用 dbid没用到
+     * 
      */
     public long getDbId() throws IOException {
         FileTxnIterator itr = new FileTxnIterator(logDir, 0);
@@ -480,6 +496,11 @@ public class FileTxnLog implements TxnLog {
      * that has been consumed by the applications. It can 
      * wrap buffered input streams to provide the right offset 
      * for the application.
+     * 
+     * 带position跟踪的输入流
+     * 可以getPosition()返回当前读了多少字节---在truncated里面有用
+     * 其他使用方式跟InputStream一致
+     * 
      */
     static class PositionInputStream extends FilterInputStream {
         long position;
@@ -526,6 +547,7 @@ public class FileTxnLog implements TxnLog {
             return position;
         }
 
+        // 不支持mark和reset 一次性读完
         @Override
         public boolean markSupported() {
             return false;
@@ -546,21 +568,29 @@ public class FileTxnLog implements TxnLog {
      * this class implements the txnlog iterator interface
      * which is used for reading the transaction logs
      * 
-     * 迭代器
+     * 迭代器 事务日志的迭代器 --跨越多个日志文件
      * 
      */
     public static class FileTxnIterator implements TxnLog.TxnIterator {
-        File logDir;
+        // 日志目录
+    	File logDir;
+    	// 从zxid开始迭代
         long zxid;
+        // 正在迭代的那条事务的hdr
         TxnHeader hdr;
+        // 正在迭代的那条事务的record
         Record record;
+        // 正在迭代的那个日志文件
         File logFile;
+        // 正在进行迭代的日志文件对应的ia
         InputArchive ia;
+        // 校验失败
         static final String CRC_ERROR="CRC check failed";
-       
+        // 正在进行迭代的带position跟踪的输入流
         PositionInputStream inputStream=null;
         //stored files is the list of files greater than
         //the zxid we are looking for.
+        // zxid之后的事务文件--后续迭代会用到
         private ArrayList<File> storedFiles;
 
         /**
@@ -568,6 +598,8 @@ public class FileTxnLog implements TxnLog {
          * @param logDir the transaction database directory
          * @param zxid the zxid to start reading from
          * @throws IOException
+         * 在事务数据库logDir下面迭代 从zxid开始--包含zxid
+         * 
          */
         public FileTxnIterator(File logDir, long zxid) throws IOException {
           this.logDir = logDir;
@@ -582,17 +614,21 @@ public class FileTxnLog implements TxnLog {
          */
         void init() throws IOException {
             storedFiles = new ArrayList<File>();
+            // 降序排列
             List<File> files = Util.sortDataDir(FileTxnLog.getLogFiles(logDir.listFiles(), 0), "log", false);
             for (File f: files) {
+            	// >= zxid的
                 if (Util.getZxidFromName(f.getName(), "log") >= zxid) {
                     storedFiles.add(f);
                 }
                 // add the last logfile that is less than the zxid
+                // 只要第一个比zxid小的文件
                 else if (Util.getZxidFromName(f.getName(), "log") < zxid) {
                     storedFiles.add(f);
                     break;
                 }
             }
+            // 
             goToNextLog();
             if (!next())
                 return;
@@ -607,6 +643,8 @@ public class FileTxnLog implements TxnLog {
          * @return true if there is one and false if there is no
          * new file to be read
          * @throws IOException
+         * 
+         * 从storedFiles取出下一个迭代的文件
          */
         private boolean goToNextLog() throws IOException {
             if (storedFiles.size() > 0) {
@@ -622,6 +660,9 @@ public class FileTxnLog implements TxnLog {
          * @param ia the inputarchive to be read from
          * @param is the inputstream
          * @throws IOException
+         * 
+         * 当从文件创建is和ia的时候 检查文件头的合法性
+         * 
          */
         protected void inStreamCreated(InputArchive ia, InputStream is)
             throws IOException{
@@ -639,6 +680,11 @@ public class FileTxnLog implements TxnLog {
          * @param ia input archive
          * @param is file input stream associated with the input archive.
          * @throws IOException
+         * 
+         * 创建logFile对应的inputStream和ia
+         * 这里处理的很丑陋啊 读完一个inputStream后会将它置为null 这样才会执行if(inputStream==null)
+         * 参见next()方法里面 在异常处理中来做这个逻辑 
+         * 
          **/
         protected InputArchive createInputArchive(File logFile) throws IOException {
             if(inputStream==null){
@@ -663,12 +709,20 @@ public class FileTxnLog implements TxnLog {
          * the iterator that moves to the next transaction
          * @return true if there is more transactions to be read
          * false if not.
+         * 
+         * 迭代到下一条事务日志--注意这里如何维护跨日志文件 
+         * 个人认为实现比较丑陋
+         * 
          */
         public boolean next() throws IOException {
             if (ia == null) {
                 return false;
             }
             try {
+            	// TODO: "crcvalue"??? 写的时候不是以“txnEntryCRC”写的吗？？？
+            	// 明白了 这里写和读的时候的tag确实是写错了 不一致
+            	// 不过参见ia的实现 发现读基本类型的时候直接安装数据长度去读的 并没有使用标签
+            	// 事实上标签在这里没有用
                 long crcValue = ia.readLong("crcvalue");
                 byte[] bytes = Util.readTxnBytes(ia);
                 // Since we preallocate, we define EOF to be an
@@ -687,16 +741,21 @@ public class FileTxnLog implements TxnLog {
                 hdr = new TxnHeader();
                 record = SerializeUtils.deserializeTxn(iab, hdr);
             } catch (EOFException e) {
+            	// 无论是发现损坏的记录还是到达文件末尾
+            	// 都以抛出异常的形式来进入到下一个文件
+            	// TODO  这里是否有些问题？？？？文件损坏怎么办？？？
                 LOG.debug("EOF excepton " + e);
                 inputStream.close();
                 inputStream = null;
                 ia = null;
                 hdr = null;
+                // 进入下一个文件
                 // thsi means that the file has ended
                 // we shoud go to the next file
                 if (!goToNextLog()) {
                     return false;
                 }
+                // 进入下一条记录
                 // if we went to the next log file, we should call next() again
                 return next();
             }

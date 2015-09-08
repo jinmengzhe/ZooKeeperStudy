@@ -40,16 +40,22 @@ import org.apache.zookeeper.txn.SetDataTxn;
 import org.apache.zookeeper.txn.TxnHeader;
 
 /**
- * 序列化和反序列化的工具：
+ * snapshot文件的序列化和反序列化的工具:
+ * 
  * 
  * */
 public class SerializeUtils {
     private static final Logger LOG = Logger.getLogger(SerializeUtils.class);
     
+    /**
+     * 根据事务头hdr 反序列化出事务体Record
+     * 
+     * */
     public static Record deserializeTxn(InputArchive ia, TxnHeader hdr)
             throws IOException {
         hdr.deserialize(ia, "hdr");
         Record txn = null;
+        // 事务类型
         switch (hdr.getType()) {
         case OpCode.createSession:
             // This isn't really an error txn; it just has the same
@@ -80,6 +86,11 @@ public class SerializeUtils {
         return txn;
     }
 
+    /**
+     * 从ia中反序列化出dt和sessions
+     * 格式参见序列化的过程
+     * 
+     * */
     public static void deserializeSnapshot(DataTree dt,InputArchive ia,
             Map<Long, Integer> sessions) throws IOException {
         int count = ia.readInt("count");
@@ -97,6 +108,15 @@ public class SerializeUtils {
         dt.deserialize(ia, "tree");
     }
 
+    /**
+     * 格式:
+     * $countsessionMap的大小
+     * id timeout
+     * id timeout
+     * ....
+     * tree(DataTree)
+     * 
+     * */
     public static void serializeSnapshot(DataTree dt,OutputArchive oa,
             Map<Long, Integer> sessions) throws IOException {
         HashMap<Long, Integer> sessSnap = new HashMap<Long, Integer>(sessions);
@@ -105,7 +125,7 @@ public class SerializeUtils {
             oa.writeLong(entry.getKey().longValue(), "id");
             oa.writeInt(entry.getValue().intValue(), "timeout");
         }
+        // 参见DataTree
         dt.serialize(oa, "tree");
     }
-
 }

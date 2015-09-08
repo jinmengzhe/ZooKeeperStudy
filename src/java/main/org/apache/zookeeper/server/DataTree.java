@@ -65,6 +65,11 @@ import org.apache.zookeeper.txn.TxnHeader;
  * The tree maintains two parallel data structures: a hashtable that maps from
  * full paths to DataNodes and a tree of DataNodes. All accesses to a path is
  * through the hashtable. The tree is traversed only when serializing to disk.
+ * 
+ * zookeeper树形数据模型:
+ * 1  Map: fullpath->DataNode
+ * 2  DataNode树形结构
+ * 
  */
 public class DataTree {
     private static final Logger LOG = Logger.getLogger(DataTree.class);
@@ -72,62 +77,99 @@ public class DataTree {
     /**
      * This hashtable provides a fast lookup to the datanodes. The tree is the
      * source of truth and is where all the locking occurs
+     * 
+     * 所有节点 包括zk自带节点和配额节点
+     * 
      */
     private final ConcurrentHashMap<String, DataNode> nodes =
         new ConcurrentHashMap<String, DataNode>();
-
+    
     private final WatchManager dataWatches = new WatchManager();
 
     private final WatchManager childWatches = new WatchManager();
 
-    /** the root of zookeeper tree */
+    
+    
+    //  下面这几个字符串变量用于初始化DataTree 是空的zk启动后就自带的节点
+    /** the root of zookeeper tree 
+     * zk自带节点“/”
+     * 
+     * */
     private static final String rootZookeeper = "/";
 
-    /** the zookeeper nodes that acts as the management and status node **/
+    /** the zookeeper nodes that acts as the management and status node 
+     *  
+     *  zk自带节点"/zookeeper"
+     * **/
     private static final String procZookeeper = Quotas.procZookeeper;
 
-    /** this will be the string thats stored as a child of root */
+    /** this will be the string thats stored as a child of root 
+     *  "zookeeper"
+     *  
+     * */
     private static final String procChildZookeeper = procZookeeper.substring(1);
 
     /**
      * the zookeeper quota node that acts as the quota management node for
      * zookeeper
+     * 
+     * 配额节点 "/zookeeper/quota"
      */
     private static final String quotaZookeeper = Quotas.quotaZookeeper;
 
-    /** this will be the string thats stored as a child of /zookeeper */
+    /** this will be the string thats stored as a child of /zookeeper 
+     * “quota”
+     * 
+     * */
     private static final String quotaChildZookeeper = quotaZookeeper
             .substring(procZookeeper.length() + 1);
 
     /**
      * the path trie that keeps track fo the quota nodes in this datatree
+     * 仅用于跟踪所有配额节点 并不是整个节点树
+     * 
      */
     private final PathTrie pTrie = new PathTrie();
 
     /**
      * This hashtable lists the paths of the ephemeral nodes of a session.
+     * 临时节点: session->该session的临时节点集合
      */
     private final Map<Long, HashSet<String>> ephemerals =
         new ConcurrentHashMap<Long, HashSet<String>>();
 
+    
+    // 用一个long来映射一个List<ACL> 在DataNode里面acl用long值表示
+    // 在这里可以根据long值获取到DataNode对应的acls TODO 为什么这么做
+    // 
     /**
      * this is map from longs to acl's. It saves acl's being stored for each
      * datanode.
+     * 
+     * long(第几个加入的List<ACL>) --> List<ACL>
+     *  
      */
     public final Map<Long, List<ACL>> longKeyMap =
         new HashMap<Long, List<ACL>>();
 
     /**
      * this a map from acls to long.
+     * 
+     * 与上面相反
      */
     public final Map<List<ACL>, Long> aclKeyMap =
         new HashMap<List<ACL>, Long>();
 
     /**
      * these are the number of acls that we have in the datatree
+     * 
+     * acls的数量 注意是acls不是acl 一个acls是一个List<acl>
+     * 
      */
     protected long aclIndex = 0;
 
+    
+    
     @SuppressWarnings("unchecked")
     public HashSet<String> getEphemerals(long sessionId) {
         HashSet<String> retv = ephemerals.get(sessionId);
@@ -181,6 +223,8 @@ public class DataTree {
      * @return a list of longs that map to the acls
      */
     public synchronized Long convertAcls(List<ACL> acls) {
+    	// 如果已经存在该acls 直接取出对应的long值返回
+    	// 不存在alcs返回-1 表示不需要权限
         if (acls == null)
             return -1L;
         // get the value from the map
@@ -188,6 +232,8 @@ public class DataTree {
         // could not find the map
         if (ret != null)
             return ret;
+        // 如果是新的acls 加入map 返回加入后的long值
+        // long值递增
         long val = incrementIndex();
         longKeyMap.put(val, acls);
         aclKeyMap.put(acls, val);
@@ -200,6 +246,9 @@ public class DataTree {
      * @param longVal
      *            the list of longs
      * @return a list of ACLs that map to longs
+     * 
+     * 同上 返回long值对应的acls
+     * 
      */
     public synchronized List<ACL> convertLong(Long longVal) {
         if (longVal == null)
@@ -214,6 +263,11 @@ public class DataTree {
         return acls;
     }
 
+    /**
+     * 这是所有的session??? TODO
+     * 如果一个session没有临时节点 也会在ephemerals里吗
+     * 
+     * */
     public Collection<Long> getSessions() {
         return ephemerals.keySet();
     }
@@ -264,6 +318,9 @@ public class DataTree {
     /**
      * This is a pointer to the root of the DataTree. It is the source of truth,
      * but we usually use the nodes hashmap to find nodes in the tree.
+     * 
+     * 根节点 理论上可以从它开始遍历所有节点 不过我们不这么做 从nodes去访问
+     * 
      */
     private DataNode root = new DataNode(null, new byte[0], -1L,
             new StatPersisted());
@@ -281,6 +338,10 @@ public class DataTree {
     private DataNode quotaDataNode = new DataNode(procDataNode, new byte[0],
             -1L, new StatPersisted());
 
+    /**
+     * 初始化：包含"/" "/zookeeper" "/zookeeper/quotas" 三个初始节点
+     * 
+     * */
     public DataTree() {
         /* Rather than fight it, let root have an alias */
         nodes.put("", root);
@@ -294,6 +355,7 @@ public class DataTree {
         nodes.put(quotaZookeeper, quotaDataNode);
     }
 
+    
     /**
      * is the path one of the special paths owned by zookeeper.
      *
@@ -340,11 +402,17 @@ public class DataTree {
      *
      * @param lastPrefix
      *            the path of the node that is quotaed.
+     *            lastPrefix是zk里面的一个节点的绝对路径 从/开始、不能以/结束、例如"/aaa/bbb/ccc"
+     *            在调用该方法前、应确保lastPrefix这个节点是做了配额限制的---这样才存在/zookeeper/quotas/lastPrefix/下面的zookeeper_limits和zookeeper_stats节点
+     *           
      * @param diff
      *            the diff to be added to the count
+     *            增加还是减少zookeeper_stats节点跟踪的当前节点配置值
+     * 
      */
     public void updateCount(String lastPrefix, int diff) {
-        String statNode = Quotas.statPath(lastPrefix);
+    	// lastPrefix对应的配额stat节点
+        String statNode = Quotas.statPath(lastPrefix); 
         DataNode node = nodes.get(statNode);
         StatsTrack updatedStat = null;
         if (node == null) {
@@ -352,11 +420,13 @@ public class DataTree {
             LOG.error("Missing count node for stat " + statNode);
             return;
         }
+        // 更新stat节点
         synchronized (node) {
             updatedStat = new StatsTrack(new String(node.data));
             updatedStat.setCount(updatedStat.getCount() + diff);
             node.data = updatedStat.toString().getBytes();
         }
+        // lastPrefix对应的配额limits节点
         // now check if the counts match the quota
         String quotaNode = Quotas.quotaPath(lastPrefix);
         node = nodes.get(quotaNode);
@@ -369,6 +439,7 @@ public class DataTree {
         synchronized (node) {
             thisStats = new StatsTrack(new String(node.data));
         }
+        // 比较更新后的stats 如果超过了配额 打一个警告而已吗
         if (thisStats.getCount() > -1 && (thisStats.getCount() < updatedStat.getCount())) {
             LOG
             .warn("Quota exceeded: " + lastPrefix + " count="
@@ -386,6 +457,9 @@ public class DataTree {
      *            the diff to added to number of bytes
      * @throws IOException
      *             if path is not found
+     *             
+     *  同上 一个是子节点配额 一个是数据大小配额
+     *  
      */
     public void updateBytes(String lastPrefix, long diff) {
         String statNode = Quotas.statPath(lastPrefix);

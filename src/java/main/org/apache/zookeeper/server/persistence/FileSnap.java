@@ -55,6 +55,10 @@ public class FileSnap implements SnapShot {
     private static final Logger LOG = Logger.getLogger(FileSnap.class);
     public final static int SNAP_MAGIC
         = ByteBuffer.wrap("ZKSN".getBytes()).getInt();
+    
+    /**
+     * 
+     * */
     public FileSnap(File snapDir) {
         this.snapDir = snapDir;
     }
@@ -62,6 +66,10 @@ public class FileSnap implements SnapShot {
     /**
      * deserialize a data tree from the most recent snapshot
      * @return the zxid of the snapshot
+     * 
+     * 从最新的文件中反序列化出dt和sessions
+     * 返回该文件的zxid
+     * 
      */ 
     public long deserialize(DataTree dt, Map<Long, Integer> sessions)
             throws IOException {
@@ -113,6 +121,9 @@ public class FileSnap implements SnapShot {
      * @param sessions the sessions to be filled up
      * @param ia the input archive to restore from
      * @throws IOException
+     * 
+     * 从ia反序列化除dt和sessions
+     * 
      */
     public void deserialize(DataTree dt, Map<Long, Integer> sessions,
             InputArchive ia) throws IOException {
@@ -129,6 +140,9 @@ public class FileSnap implements SnapShot {
     /**
      * find the most recent snapshot in the database.
      * @return the file containing the most recent snapshot
+     * 
+     * 寻找最新的一个有效文件
+     * 
      */
     public File findMostRecentSnapshot() throws IOException {
         List<File> files = findNValidSnapshots(1);
@@ -149,8 +163,12 @@ public class FileSnap implements SnapShot {
      * @return the last n snapshots (the number might be
      * less than n in case enough snapshots are not available).
      * @throws IOException
+     * 
+     * 寻找最多n个有效的snapshot文件、最新的排在List首位置
+     * 
      */
     private List<File> findNValidSnapshots(int n) throws IOException {
+    	// 降序排列 最新的在最前面
         List<File> files = Util.sortDataDir(snapDir.listFiles(),"snapshot", false);
         int count = 0;
         List<File> list = new ArrayList<File>();
@@ -159,6 +177,7 @@ public class FileSnap implements SnapShot {
             // from the valid snapshot and continue
             // until we find a valid one
             try {
+            	// 这只是一个简单的检查有效性
                 if (Util.isValidSnapshot(f)) {
                     list.add(f);
                     count++;
@@ -179,6 +198,9 @@ public class FileSnap implements SnapShot {
      * @param the number of most recent snapshots 
      * @return the last n snapshots
      * @throws IOException
+     * 
+     * 同上 不进行有效性检查而已
+     * 
      */
     public List<File> findNRecentSnapshots(int n) throws IOException {
         List<File> files = Util.sortDataDir(snapDir.listFiles(), "snapshot", false);
@@ -200,6 +222,9 @@ public class FileSnap implements SnapShot {
      * @param oa the output archive to serialize into
      * @param header the header of this snapshot
      * @throws IOException
+     * 
+     * 将FileHeader sessions dt 序列化到oa
+     * 
      */
     protected void serialize(DataTree dt,Map<Long, Integer> sessions,
             OutputArchive oa, FileHeader header) throws IOException {
@@ -217,6 +242,9 @@ public class FileSnap implements SnapShot {
      * @param dt the datatree to be serialized
      * @param sessions the sessions to be serialized
      * @param snapShot the file to store snapshot into
+     * 
+     * 序列化到文件
+     * 
      */
     public synchronized void serialize(DataTree dt, Map<Long, Integer> sessions, File snapShot)
             throws IOException {
@@ -226,8 +254,10 @@ public class FileSnap implements SnapShot {
             //CheckedOutputStream cout = new CheckedOutputStream()
             OutputArchive oa = BinaryOutputArchive.getArchive(crcOut);
             FileHeader header = new FileHeader(SNAP_MAGIC, VERSION, dbId);
+            // 序列化到oa
             serialize(dt,sessions,oa, header);
             long val = crcOut.getChecksum().getValue();
+            // 写checksum和"/"结束
             oa.writeLong(val, "val");
             oa.writeString("/", "path");
             sessOS.flush();

@@ -25,13 +25,15 @@ package org.apache.zookeeper;
  * 
  * quota：配额 定额的意思
  * 
- * 配额节点：
+ * 管理节点配额限制：
  * 1 /zookeeper/quota这个是zk自己预设置的一个节点 该节点用户管理一些对zk下面path的配额管理
  *   结构是这样的：
  *    /zookeeper/quota:
  *                      [path1,path2......]-----哪些节点要做配额管理
  *    /zookeeper/quota/path1: 
- *    					      [zookeeper_limits, zookeeper_stats]----限制子节点个数 +  限制子节点个数的监控状态节点？？？
+ *    					      [zookeeper_limits, zookeeper_stats]----path1的配额限制存储在zookeeper_limits + path1当前的配额数
+ *    
+ *    配额限制存储在zookeeper_limits的格式为"count=-1,bytes=-1" --参见StatsTrack类
  *    						
  *                   
  */
@@ -61,6 +63,8 @@ public class Quotas {
      * prefix
      * @param path the actual path in zookeeper.
      * @return the limit quota path
+     * 
+     * path的子节点限制存储在${return值里面}
      */
     public static String quotaPath(String path) {
         return quotaZookeeper + path +
@@ -72,6 +76,9 @@ public class Quotas {
      * prefix.
      * @param path the actual path in zookeeper
      * @return the stat quota path
+     * 
+     * path当前的子节点数存储在${return值里面}
+     * 
      */
     public static String statPath(String path) {
         return quotaZookeeper + path + "/" +
